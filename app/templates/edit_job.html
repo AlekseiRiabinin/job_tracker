@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Edit Job Application</h1>
+<form method="POST" action="/edit/{{ job_id }}">
+    <div class="form-group">
+        <label>Status:</label>
+        <select name="status">
+            <option value="Applied" {% if job.status == 'Applied' %}selected{% endif %}>Applied</option>
+            <option value="Interview" {% if job.status == 'Interview' %}selected{% endif %}>Interview</option>
+            <option value="Rejected" {% if job.status == 'Rejected' %}selected{% endif %}>Rejected</option>
+            <option value="Offer" {% if job.status == 'Offer' %}selected{% endif %}>Offer</option>
+        </select>
+    </div>
+    
+    <div class="form-group">
+        <label>Notes:</label>
+        <textarea name="notes" rows="3">{{ job.notes }}</textarea>
+    </div>
+    
+    <button type="submit">Update</button>
+    <a href="/" style="margin-left: 10px;">Cancel</a>
+</form>
+{% endblock %}

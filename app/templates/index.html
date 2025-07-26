@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>My Job Applications (Germany)</h1>
+<table>
+  <tr>
+    <th>Company</th>
+    <th>Location</th>
+    <th>Role</th>
+    <th>Status</th>
+    <th>Actions</th>
+  </tr>
+  {% for job in jobs %}
+  <tr>
+    <td>{{ job.company }}</td>
+    <td>{{ job.location }}</td>
+    <td>{{ job.role }}</td>
+    <td>{{ job.status }}</td>
+    <td>
+      <a href="/edit/{{ job._id }}">✏️</a>
+      <a href="/delete/{{ job._id }}">🗑️</a>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+<a href="/add">+ Add New</a>
+{% endblock %}
