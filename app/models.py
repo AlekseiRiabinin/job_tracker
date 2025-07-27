@@ -1,16 +1,39 @@
+import os
+import time
 from datetime import datetime
 from pymongo import MongoClient
-from bson import ObjectId
 from pymongo.results import InsertOneResult, UpdateResult, DeleteResult
+from pymongo.errors import ConnectionFailure, OperationFailure
+from bson import ObjectId
 
 
-client = MongoClient(
-    "mongodb://mongo:27017/",
-    serverSelectionTimeoutMS=5000,
-    connectTimeoutMS=30000,
-    socketTimeoutMS=30000
-)
-db = client.jobtracker
+def get_mongo_client() -> MongoClient:
+    max_retries = 5
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            client = MongoClient(
+                f"mongodb://admin:{os.getenv('MONGO_ROOT_PASSWORD')}@mongo:27017/",
+                serverSelectionTimeoutMS=5000,
+                socketTimeoutMS=30000,
+                connectTimeoutMS=30000,
+                authSource='admin'
+            )
+            client.admin.command('ping')
+            return client
+        except (ConnectionFailure, OperationFailure) as e:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(retry_delay)
+            continue
+
+try:
+    client = get_mongo_client()
+    db = client.jobtracker
+except Exception as e:
+    print(f"Failed to connect to MongoDB: {str(e)}")
+    raise
 
 
 class JobApplication:

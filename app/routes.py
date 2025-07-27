@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, abort
+from werkzeug.wrappers.response import Response
 from bson import ObjectId
 from bson.errors import InvalidId
 from .models import JobApplication, db
@@ -15,7 +16,7 @@ def index() -> str:
 
 
 @app.route('/add', methods=['GET', 'POST'])
-def add_job() -> str | redirect:
+def add_job() -> str | Response:
     """Handle job application creation."""
     if request.method == 'POST':
         try:
@@ -33,7 +34,7 @@ def add_job() -> str | redirect:
 
 
 @app.route('/edit/<job_id>', methods=['GET', 'POST'])
-def edit_job(job_id: str) -> str | redirect:
+def edit_job(job_id: str) -> str | Response:
     """Handle editing existing job applications."""
     try:
         job = db.applications.find_one({"_id": ObjectId(job_id)})
@@ -50,16 +51,15 @@ def edit_job(job_id: str) -> str | redirect:
             except KeyError as e:
                 abort(400, description=f"Missing required field: {e.args[0]}")
 
-        # Convert ObjectId to string for template
         job['_id'] = str(job['_id'])
-        return render_template('edit_job.html', job=job)
+        return render_template('edit_job.html', job=job, job_id=str(job['_id']))
 
     except InvalidId:
         abort(404, "Invalid job ID format")
 
 
 @app.route('/delete/<job_id>')
-def delete_job(job_id: str) -> redirect:
+def delete_job(job_id: str) -> Response:
     """Handle application deletion."""
     try:
         JobApplication.delete(job_id)
