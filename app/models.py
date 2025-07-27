@@ -18,29 +18,17 @@ class JobApplication:
     
     @staticmethod
     def create(data: dict[str, str | datetime]) -> InsertOneResult:
-        """Insert a new job application into the database.
-        
-        Args:
-            data: Must contain:
-                - company: str
-                - location: str 
-                - role: str
-                - status: str (default: 'Applied')
-                - notes: Optional[str]
-                
-        Returns:
-            InsertOneResult: MongoDB insertion result.
-            
-        Raises:
-            KeyError: If required fields are missing.
-        """
+        """Insert a new job application into the database."""
         required_fields = {'company', 'location', 'role'}
-        if not required_fields.issubset(data.keys()):
-            raise KeyError(f"Missing required fields: {required_fields - set(data.keys())}")
+        if missing := required_fields - set(data.keys()):
+            raise KeyError(f"Missing required fields: {missing}")
             
-        data.setdefault('status', 'Applied')
-        data['applied_date'] = datetime.now().strftime("%Y-%m-%d")
-        return db.applications.insert_one(data)
+        doc = {
+            **data,
+            'status': data.get('status', 'Applied'),
+            'applied_date': datetime.now()
+        }
+        return db.applications.insert_one(doc)
 
     @staticmethod
     def get_all() -> list[dict[str, str | datetime]]:

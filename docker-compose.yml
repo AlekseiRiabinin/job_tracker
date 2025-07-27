@@ -1,19 +1,51 @@
 services:
   web:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    image: alexflames77/job_tracker:latest
+    container_name: job-tracker
     ports:
       - "5000:5000"
     environment:
       - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - jobtracker-net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
 
   mongo:
-    image: mongo:5.0
+    image: mongo:8.0
     volumes:
       - mongodb_data:/data/db
-    ports:
-      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jobtracker-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
 
 volumes:
   mongodb_data:
+
+networks:
+  jobtracker-net:
+    driver: bridge
