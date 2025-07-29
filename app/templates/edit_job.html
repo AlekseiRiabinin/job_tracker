@@ -2,33 +2,45 @@
 
 {% block content %}
 <h1>Edit Job Application</h1>
-<form method="POST" action="{{ url_for('edit_job', job_id=job._id) }}">
+<form method="POST" action="{{ url_for('main.edit_job', job_id=job.id) }}">
     <div class="form-group">
-        <label>Company:</label>
-        <input type="text" value="{{ job.company }}" readonly>
+        <label for="company">Company:</label>
+        <input type="text" id="company" name="company" value="{{ job.company }}" readonly>
     </div>
     
     <div class="form-group">
-        <label>Role:</label>
-        <input type="text" value="{{ job.role }}" readonly>
+        <label for="location">Location:</label>
+        <input type="text" id="location" name="location" value="{{ job.location }}" readonly>
+    </div>
+    
+    <div class="form-group">
+        <label for="role">Role:</label>
+        <input type="text" id="role" name="role" value="{{ job.role }}" readonly>
     </div>
 
     <div class="form-group">
-        <label>Status:</label>
-        <select name="status">
+        <label for="status">Status:</label>
+        <select id="status" name="status">
             <option value="Applied" {% if job.status == 'Applied' %}selected{% endif %}>Applied</option>
             <option value="Interview" {% if job.status == 'Interview' %}selected{% endif %}>Interview</option>
             <option value="Rejected" {% if job.status == 'Rejected' %}selected{% endif %}>Rejected</option>
             <option value="Offer" {% if job.status == 'Offer' %}selected{% endif %}>Offer</option>
+            <option value="Ghosted" {% if job.status == 'Ghosted' %}selected{% endif %}>Ghosted</option>
         </select>
     </div>
     
     <div class="form-group">
-        <label>Notes:</label>
-        <textarea name="notes" rows="3">{{ job.notes }}</textarea>
+        <label for="applied_date">Applied Date:</label>
+        <input type="date" id="applied_date" name="applied_date" 
+               value="{{ job.applied_date.strftime('%Y-%m-%d') if job.applied_date else '' }}">
+    </div>
+    
+    <div class="form-group">
+        <label for="notes">Notes:</label>
+        <textarea id="notes" name="notes" rows="3">{{ job.notes or '' }}</textarea>
     </div>
     
     <button type="submit">Update</button>
-    <a href="{{ url_for('index') }}" style="margin-left: 10px;">Cancel</a>
+    <a href="{{ url_for('main.index') }}" style="margin-left: 10px;">Cancel</a>
 </form>
 {% endblock %}

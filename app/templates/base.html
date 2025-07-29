@@ -12,9 +12,21 @@
         a { color: #0066cc; text-decoration: none; }
         .form-group { margin-bottom: 15px; }
         input, select, textarea { width: 100%; padding: 8px; }
+        .actions a { margin-right: 10px; }
+        .flash-message { padding: 10px; margin-bottom: 15px; background-color: #f0f0f0; }
     </style>
 </head>
 <body>
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <div class="flash-message">
+                {% for message in messages %}
+                    <p>{{ message }}</p>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+    
     {% block content %}{% endblock %}
 </body>
 </html>

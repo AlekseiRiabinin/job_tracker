@@ -3,7 +3,9 @@ FROM python:3.12-slim
 # Build-time env vars
 ENV PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    FLASK_APP=wsgi.py \
+    FLASK_ENV=production
 
 WORKDIR /app
 
@@ -30,4 +32,4 @@ RUN useradd -m appuser && \
 USER appuser
 
 # Gunicorn config
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "app.routes:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "wsgi:app"]

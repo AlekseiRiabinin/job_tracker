@@ -7,10 +7,11 @@ services:
     container_name: job-tracker
     ports:
       - "5000:5000"
+    env_file:
+      - .env
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
-      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     depends_on:
       mongo:
         condition: service_healthy

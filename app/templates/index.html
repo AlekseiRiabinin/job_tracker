@@ -8,7 +8,8 @@
     <th>Location</th>
     <th>Role</th>
     <th>Status</th>
-    <th>Actions</th>
+    <th>Applied Date</th>
+    <th class="actions">Actions</th>
   </tr>
   {% for job in jobs %}
   <tr>
@@ -16,12 +17,13 @@
     <td>{{ job.location }}</td>
     <td>{{ job.role }}</td>
     <td>{{ job.status }}</td>
-    <td>
-      <a href="/edit/{{ job._id }}">✏️</a>
-      <a href="/delete/{{ job._id }}">🗑️</a>
+    <td>{{ job.applied_date.strftime('%Y-%m-%d') if job.applied_date else 'N/A' }}</td>
+    <td class="actions">
+      <a href="{{ url_for('main.edit_job', job_id=job.id) }}">✏️ Edit</a>
+      <a href="{{ url_for('main.delete_job', job_id=job.id) }}" onclick="return confirm('Are you sure you want to delete this application?')">🗑️ Delete</a>
     </td>
   </tr>
   {% endfor %}
 </table>
-<a href="/add">+ Add New</a>
+<a href="{{ url_for('main.add_job') }}" class="button">+ Add New Application</a>
 {% endblock %}
