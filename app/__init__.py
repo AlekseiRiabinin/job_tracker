@@ -1,11 +1,12 @@
 from flask import Flask
+from flasgger import Swagger
 from . import routes
+
 
 
 def create_app():
     app = Flask(__name__)
+    Swagger(app)
     
-    # Register blueprints
     app.register_blueprint(routes.bp)
-    
     return app

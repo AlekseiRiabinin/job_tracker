@@ -52,7 +52,8 @@ class JobApplicationBase(BaseModel):
         "Applied",
         "Interview",
         "Offer",
-        "Rejected", "Ghosted"
+        "Rejected",
+        "Ghosted"
     }
 
     company: str = Field(
