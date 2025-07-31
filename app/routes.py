@@ -1,10 +1,13 @@
+from datetime import datetime
 from flask import (
-    Blueprint, render_template, request,
-    redirect, url_for, abort, jsonify
+    Blueprint, current_app, request,
+    redirect, url_for, abort, jsonify,
+    render_template
 )
 from bson import ObjectId
 from bson.errors import InvalidId
 from .models import JobApplication, JobApplicationDB
+from .services.analytics import AnalyticsService
 
 
 bp = Blueprint('main', __name__)
@@ -138,3 +141,70 @@ def delete_job(job_id: str) -> str | dict:
         if is_api_request():
             return jsonify({"error": "Invalid ID format"}), 400
         abort(404, "Invalid job ID")
+
+
+@bp.route('/analytics/summary', methods=['GET'])
+def analytics_summary() -> str | dict:
+    """Display summary statistics for job applications."""
+    stats = AnalyticsService.get_summary_stats()
+    
+    if is_api_request():
+        return jsonify(stats)
+        
+    return render_template(
+        'dashboard/overview.html',
+        stats=stats,
+        title="Application Summary"
+    )
+
+
+@bp.route('/analytics/timeseries', methods=['GET'])
+def analytics_timeseries() -> str | dict:
+    """Display time-series data of applications."""
+    try:
+        start_date = request.args.get(
+            'start',
+            default=f"{datetime.now().year}-01-01"
+        )
+        end_date = request.args.get('end')
+        include_details = (
+            request.args.get('details', '').lower() 
+            in ('true', '1', 'yes')
+        )
+
+        data = AnalyticsService.get_timeseries(
+            start_date=start_date,
+            end_date=end_date,
+            include_applications=include_details
+        )
+        
+        if is_api_request():
+            return jsonify({
+                "meta": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "count": len(data)
+                },
+                "data": data
+            })
+            
+        return render_template(
+            'dashboard/timeseries.html',
+            chart_data=data,
+            show_details=include_details,
+            title=f"Applications from {start_date}" + 
+                 (f" to {end_date}" if end_date else "")
+        )
+        
+    except ValueError as e:
+        error_msg = f"Invalid date format: {str(e)}. Use YYYY-MM-DD."
+        if is_api_request():
+            return jsonify({"error": error_msg}), 400
+        abort(400, description=error_msg)
+        
+    except Exception as e:
+        error_msg = "Failed to fetch timeseries data"
+        current_app.logger.error(f"{error_msg}: {str(e)}")
+        if is_api_request():
+            return jsonify({"error": error_msg}), 500
+        abort(500)

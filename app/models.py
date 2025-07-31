@@ -80,7 +80,14 @@ class JobApplicationBase(BaseModel):
         default_factory=datetime.now,
         description="When the application was submitted"
     )
-
+    response_date: Optional[datetime] = Field(
+        None, 
+        description="When company responded"
+    )
+    source: str = Field(
+        "Other", 
+        description="Where (website) the job was found"
+    )
     @field_validator('status')
     def validate_status(cls: Self, v: str) -> str:
         if v not in cls.VALID_STATUSES:
