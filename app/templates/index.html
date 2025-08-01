@@ -8,7 +8,8 @@
     <th>Location</th>
     <th>Role</th>
     <th>Status</th>
-    <th>Applied Date</th>
+    <th>Applied</th>
+    <th>Response</th>
     <th class="actions">Actions</th>
   </tr>
   {% for job in jobs %}
@@ -16,14 +17,41 @@
     <td>{{ job.company }}</td>
     <td>{{ job.location }}</td>
     <td>{{ job.role }}</td>
-    <td>{{ job.status }}</td>
-    <td>{{ job.applied_date.strftime('%Y-%m-%d') if job.applied_date else 'N/A' }}</td>
+    <td>
+      {{ job.status }}
+      {% if job.vacancy_description %}
+        <span title="Has description">📄</span>
+      {% endif %}
+    </td>
+    <td>{{ job.applied_date.strftime('%Y-%m-%d') }}</td>
+    <td>
+      {% if job.response_date %}
+        {{ job.response_date.strftime('%Y-%m-%d') }}
+        <small>({{ job.response_days }}d)</small>
+      {% else %}
+        —
+      {% endif %}
+    </td>
     <td class="actions">
       <a href="{{ url_for('main.edit_job', job_id=job.id) }}">✏️ Edit</a>
-      <a href="{{ url_for('main.delete_job', job_id=job.id) }}" onclick="return confirm('Are you sure you want to delete this application?')">🗑️ Delete</a>
+      <a href="{{ url_for('main.delete_job', job_id=job.id) }}" 
+         onclick="return confirm('Delete this application?')">🗑️ Delete</a>
     </td>
   </tr>
   {% endfor %}
 </table>
 <a href="{{ url_for('main.add_job') }}" class="button">+ Add New Application</a>
+
+<style>
+  .actions a {
+    margin-right: 10px;
+  }
+  small {
+    font-size: 0.8em;
+    color: #666;
+  }
+  [title] {
+    cursor: help;
+  }
+</style>
 {% endblock %}

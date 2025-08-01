@@ -57,7 +57,12 @@ def add_job() -> str | dict:
                 if request.is_json 
                 else request.form.to_dict()
             )
-            
+
+            if 'response_date' in data and data['response_date'] == '':
+                data['response_date'] = None
+            if 'applied_date' in data and data['applied_date'] == '':
+                data['applied_date'] = None
+
             result = JobApplication.create(data)
             
             if is_api_request():
@@ -145,17 +150,32 @@ def delete_job(job_id: str) -> str | dict:
 
 @bp.route('/analytics/summary', methods=['GET'])
 def analytics_summary() -> str | dict:
-    """Display summary statistics for job applications."""
-    stats = AnalyticsService.get_summary_stats()
-    
-    if is_api_request():
-        return jsonify(stats)
-        
-    return render_template(
-        'dashboard/overview.html',
-        stats=stats,
-        title="Application Summary"
-    )
+    """Display comprehensive summary statistics for job applications."""
+    try:
+        stats = {
+            "basic_stats": AnalyticsService.get_summary_stats(),
+            "status_distribution": AnalyticsService.get_status_distribution(),
+            "response_metrics": AnalyticsService.get_response_metrics()
+        }
+
+        if is_api_request():
+            return jsonify({
+                "meta": {"generated_at": datetime.isoformat()},
+                "data": stats
+            })
+
+        return render_template(
+            'dashboard/overview.html',
+            stats=stats,
+            title="Application Analytics Summary"
+        )
+
+    except Exception as e:
+        error_msg = "Failed to generate analytics summary"
+        current_app.logger.error(f"{error_msg}: {str(e)}")
+        if is_api_request():
+            return jsonify({"error": error_msg}), 500
+        abort(500)
 
 
 @bp.route('/analytics/timeseries', methods=['GET'])

@@ -19,12 +19,25 @@
     </div>
 
     <div class="form-group">
+        <label for="source">Source:</label>
+        <select id="source" name="source">
+            <option value="LinkedIn" {% if job.source == 'LinkedIn' %}selected{% endif %}>LinkedIn</option>
+            <option value="Indeed" {% if job.source == 'Indeed' %}selected{% endif %}>Indeed</option>
+            <option value="Company Website" {% if job.source == 'Company Website' %}selected{% endif %}>Company Website</option>
+            <option value="Referral" {% if job.source == 'Referral' %}selected{% endif %}>Referral</option>
+            <option value="Other" {% if not job.source or job.source == 'Other' %}selected{% endif %}>Other</option>
+        </select>
+    </div>
+    
+    <div class="form-group">
         <label for="status">Status:</label>
         <select id="status" name="status">
             <option value="Applied" {% if job.status == 'Applied' %}selected{% endif %}>Applied</option>
-            <option value="Interview" {% if job.status == 'Interview' %}selected{% endif %}>Interview</option>
-            <option value="Rejected" {% if job.status == 'Rejected' %}selected{% endif %}>Rejected</option>
+            <option value="Interview/Phone" {% if job.status == 'Interview/Phone' %}selected{% endif %}>Interview (Phone)</option>
+            <option value="Interview/Technical" {% if job.status == 'Interview/Technical' %}selected{% endif %}>Interview (Technical)</option>
+            <option value="Interview/Onsite" {% if job.status == 'Interview/Onsite' %}selected{% endif %}>Interview (Onsite)</option>
             <option value="Offer" {% if job.status == 'Offer' %}selected{% endif %}>Offer</option>
+            <option value="Rejected" {% if job.status == 'Rejected' %}selected{% endif %}>Rejected</option>
             <option value="Ghosted" {% if job.status == 'Ghosted' %}selected{% endif %}>Ghosted</option>
         </select>
     </div>
@@ -36,6 +49,17 @@
     </div>
     
     <div class="form-group">
+        <label for="response_date">Response Date:</label>
+        <input type="date" id="response_date" name="response_date"
+               value="{{ job.response_date.strftime('%Y-%m-%d') if job.response_date else '' }}">
+    </div>
+    
+    <div class="form-group">
+        <label for="vacancy_description">Job Description:</label>
+        <textarea id="vacancy_description" name="vacancy_description" rows="4">{{ job.vacancy_description or '' }}</textarea>
+    </div>
+    
+    <div class="form-group">
         <label for="notes">Notes:</label>
         <textarea id="notes" name="notes" rows="3">{{ job.notes or '' }}</textarea>
     </div>
@@ -43,4 +67,29 @@
     <button type="submit">Update</button>
     <a href="{{ url_for('main.index') }}" style="margin-left: 10px;">Cancel</a>
 </form>
+
+<style>
+    .form-group {
+        margin-bottom: 1rem;
+    }
+    label {
+        display: block;
+        margin-bottom: 0.3rem;
+    }
+    input[type="text"],
+    input[type="date"],
+    select,
+    textarea {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+    textarea {
+        min-height: 80px;
+    }
+    input[readonly] {
+        background-color: #f5f5f5;
+    }
+</style>
 {% endblock %}

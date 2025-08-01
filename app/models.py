@@ -2,7 +2,10 @@ import os
 import time
 from datetime import datetime
 from typing import Optional, Self, ClassVar, Any
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel, ConfigDict, Field,
+    field_validator, model_validator
+)
 from pymongo import MongoClient
 from pymongo.results import InsertOneResult, UpdateResult, DeleteResult
 from pymongo.errors import ConnectionFailure, OperationFailure
@@ -50,7 +53,9 @@ class JobApplicationBase(BaseModel):
     """Base schema for job application data validation."""
     VALID_STATUSES: ClassVar[set[str]] = {
         "Applied",
-        "Interview",
+        "Interview/Phone",
+        "Interview/Technical",
+        "Interview/Onsite",
         "Offer",
         "Rejected",
         "Ghosted"
@@ -76,6 +81,10 @@ class JobApplicationBase(BaseModel):
         None, max_length=500,
         description="Additional notes about the application"
     )
+    source: str = Field(
+        "Other", 
+        description="Where (website) the job was found"
+    )
     applied_date: datetime = Field(
         default_factory=datetime.now,
         description="When the application was submitted"
@@ -84,15 +93,32 @@ class JobApplicationBase(BaseModel):
         None, 
         description="When company responded"
     )
-    source: str = Field(
-        "Other", 
-        description="Where (website) the job was found"
+    response_days: Optional[int] = Field(
+        None,
+        description="Automatically calculated response time in days",
+        exclude=True
     )
+    vacancy_description: Optional[str] = Field(
+        None,
+        max_length=20000,
+        description="Full text of the job vacancy/description",
+        json_schema_extra={
+            "mongo_index": "text",    # Enable text search in MongoDB
+            "input_type": "textarea"  # Hint for frontend form
+        }
+    )
+
     @field_validator('status')
     def validate_status(cls: Self, v: str) -> str:
         if v not in cls.VALID_STATUSES:
             raise ValueError(f"Status must be one of {cls.VALID_STATUSES}")
         return v
+
+    @model_validator(mode='after')
+    def calculate_response_time(self: Self) -> Self:
+        if self.applied_date and self.response_date:
+            self.response_days = (self.response_date - self.applied_date).days
+        return self
 
 
 class JobApplicationCreate(JobApplicationBase):
@@ -101,11 +127,20 @@ class JobApplicationCreate(JobApplicationBase):
         None,
         description="Will be set to current time if not provided"
     )
+    response_date: Optional[datetime] = Field(
+        None,
+        description="Date when company responded (optional)"
+    )
 
-    @field_validator('applied_date', mode='before')
-    def parse_applied_date(cls: Self, value: Any) -> Optional[datetime]:
+    @field_validator('applied_date', 'response_date', mode='before')
+    def parse_dates(cls: Self, value: Any) -> Optional[datetime]:
         if value == '' or value is None:
             return None
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                raise ValueError("Invalid date format. Use YYYY-MM-DD")
         return value
 
 

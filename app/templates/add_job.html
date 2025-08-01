@@ -17,14 +17,27 @@
         <label for="role">Role*:</label>
         <input type="text" id="role" name="role" required>
     </div>
+
+    <div class="form-group">
+        <label for="source">Source:</label>
+        <select id="source" name="source">
+            <option value="LinkedIn">LinkedIn</option>
+            <option value="Indeed">Indeed</option>
+            <option value="Company Website">Company Website</option>
+            <option value="Referral">Referral</option>
+            <option value="Other" selected>Other</option>
+        </select>
+    </div>
     
     <div class="form-group">
         <label for="status">Status:</label>
         <select id="status" name="status">
             <option value="Applied" selected>Applied</option>
-            <option value="Interview">Interview</option>
-            <option value="Rejected">Rejected</option>
+            <option value="Interview/Phone">Interview (Phone)</option>
+            <option value="Interview/Technical">Interview (Technical)</option>
+            <option value="Interview/Onsite">Interview (Onsite)</option>
             <option value="Offer">Offer</option>
+            <option value="Rejected">Rejected</option>
             <option value="Ghosted">Ghosted</option>
         </select>
     </div>
@@ -36,6 +49,17 @@
     </div>
     
     <div class="form-group">
+        <label for="response_date">Response Date:</label>
+        <input type="date" id="response_date" name="response_date">
+        <small class="text-muted">Leave blank if no response yet</small>
+    </div>
+    
+    <div class="form-group">
+        <label for="vacancy_description">Job Description:</label>
+        <textarea id="vacancy_description" name="vacancy_description" rows="4"></textarea>
+    </div>
+    
+    <div class="form-group">
         <label for="notes">Notes:</label>
         <textarea id="notes" name="notes" rows="3"></textarea>
     </div>
@@ -43,4 +67,26 @@
     <button type="submit">Save</button>
     <a href="{{ url_for('main.index') }}" style="margin-left: 10px;">Cancel</a>
 </form>
+
+<style>
+    .form-group {
+        margin-bottom: 1rem;
+    }
+    label {
+        display: block;
+        margin-bottom: 0.3rem;
+    }
+    input[type="text"],
+    input[type="date"],
+    select,
+    textarea {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+    textarea {
+        min-height: 80px;
+    }
+</style>
 {% endblock %}
