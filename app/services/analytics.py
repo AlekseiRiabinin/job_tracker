@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from ..models import JobApplication
 
 
@@ -79,7 +79,7 @@ class AnalyticsService:
                 if status.startswith("Interview/")
             }
         }
-        
+
         return {
             "individual_statuses": status_details,
             "interview_pipeline": interview_stages,

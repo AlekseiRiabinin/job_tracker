@@ -1,7 +1,18 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h1>My Job Applications (Germany)</h1>
+<div class="header-with-actions">
+    <h1>My Job Applications (Germany)</h1>
+    <div class="analytics-buttons">
+        <a href="{{ url_for('main.analytics_summary') }}" class="button analytics-button">
+            📊 View Summary
+        </a>
+        <a href="{{ url_for('main.analytics_timeseries') }}" class="button analytics-button">
+            📈 View Timeline
+        </a>
+    </div>
+</div>
+
 <table>
   <tr>
     <th>Company</th>
@@ -20,7 +31,12 @@
     <td>
       {{ job.status }}
       {% if job.vacancy_description %}
-        <span title="Has description">📄</span>
+        <div class="tooltip-container">
+          <span class="tooltip-icon">📄</span>
+          <div class="tooltip-content">
+            {{ job.vacancy_description }}
+          </div>
+        </div>
       {% endif %}
     </td>
     <td>{{ job.applied_date.strftime('%Y-%m-%d') }}</td>
@@ -43,15 +59,93 @@
 <a href="{{ url_for('main.add_job') }}" class="button">+ Add New Application</a>
 
 <style>
-  .actions a {
-    margin-right: 10px;
+  .header-with-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 15px;
   }
-  small {
-    font-size: 0.8em;
-    color: #666;
+  
+  .analytics-buttons {
+    display: flex;
+    gap: 10px;
   }
-  [title] {
+  
+  .analytics-button {
+    background-color: #4a6fa5;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
+  }
+  
+  .analytics-button:hover {
+    background-color: #3a5a8c;
+  }
+  
+  .tooltip-container {
+    position: relative;
+    display: inline-block;
+  }
+  
+  .tooltip-icon {
     cursor: help;
+  }
+  
+  .tooltip-content {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    width: 300px;
+    max-height: 200px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid #ddd;
+    padding: 12px;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+    z-index: 1000;
+    white-space: pre-wrap;
+    display: none;
+    pointer-events: auto;
+  }
+  
+  .tooltip-container:hover .tooltip-content {
+    display: block;
+  }
+  
+  .tooltip-content::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .tooltip-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+  }
+  
+  .tooltip-content::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+  }
+  
+  .tooltip-content::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+  
+  @media (max-width: 768px) {
+    .header-with-actions {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    
+    .analytics-buttons {
+      width: 100%;
+      justify-content: flex-start;
+    }
   }
 </style>
 {% endblock %}

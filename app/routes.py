@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import (
     Blueprint, current_app, request,
     redirect, url_for, abort, jsonify,
@@ -160,7 +160,7 @@ def analytics_summary() -> str | dict:
 
         if is_api_request():
             return jsonify({
-                "meta": {"generated_at": datetime.isoformat()},
+                "meta": {"generated_at": datetime.now(timezone.utc).isoformat()},
                 "data": stats
             })
 
@@ -174,7 +174,11 @@ def analytics_summary() -> str | dict:
         error_msg = "Failed to generate analytics summary"
         current_app.logger.error(f"{error_msg}: {str(e)}")
         if is_api_request():
-            return jsonify({"error": error_msg}), 500
+            return jsonify({
+                "error": error_msg,
+                "details": str(e),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }), 500
         abort(500)
 
 
@@ -207,10 +211,12 @@ def analytics_timeseries() -> str | dict:
                 },
                 "data": data
             })
-            
+
         return render_template(
             'dashboard/timeseries.html',
             chart_data=data,
+            chart_labels=[entry['date'] for entry in data],
+            chart_values=[entry['count'] for entry in data],
             show_details=include_details,
             title=f"Applications from {start_date}" + 
                  (f" to {end_date}" if end_date else "")
