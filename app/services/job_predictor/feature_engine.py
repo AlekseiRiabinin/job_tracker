@@ -1,12 +1,13 @@
 import re
 import spacy
-import numpy as np
 import pandas as pd
 from langdetect import detect
 from typing import Optional, Literal, Pattern, Self
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, vstack
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.feature_extraction.text import TfidfVectorizer
+from spacy.lang.en.stop_words import STOP_WORDS as EN_STOP_WORDS
+from spacy.lang.de.stop_words import STOP_WORDS as DE_STOP_WORDS
 from .config import (
     LanguagePatterns,
     TECH_KEYWORDS,
@@ -110,6 +111,7 @@ class TechStackTransformer(BaseEstimator, TransformerMixin):
             if isinstance(tech_dict, dict):
                 all_techs.update(tech_dict.keys())
         self.feature_names_ = sorted(all_techs)
+
         return self
 
     def transform(self: Self, X: pd.DataFrame) -> pd.DataFrame:
@@ -131,6 +133,7 @@ class TechStackTransformer(BaseEstimator, TransformerMixin):
         """Get output feature names for transformation."""
         if self.feature_names_ is None:
             raise ValueError("Transformer not fitted yet")
+
         return self.feature_names_
 
 
@@ -143,53 +146,44 @@ class LanguageAwareTfidf(BaseEstimator, TransformerMixin):
 
         self.vectorizer_en = TfidfVectorizer(
             max_features=max_features,
-            stop_words=spacy.lang.en.stop_words.STOP_WORDS
+            stop_words=EN_STOP_WORDS
         )
         self.vectorizer_de = TfidfVectorizer(
             max_features=max_features,
-            stop_words=spacy.lang.de.stop_words.STOP_WORDS
+            stop_words=DE_STOP_WORDS
         )
 
     def fit(self: Self, X: pd.DataFrame) -> Self:
         """Fit the vectorizers to English and German text subsets."""
+
+        if not {'processed_text', 'description_lang'}.issubset(X.columns):
+            raise ValueError(
+                f"Input DataFrame must contain 'processed_text' "
+                f"and 'description_lang' columns"
+            )
 
         texts_en = X[X['description_lang'] == 'en']['processed_text']
         texts_de = X[X['description_lang'] == 'de']['processed_text']
 
         self.vectorizer_en.fit(texts_en)
         self.vectorizer_de.fit(texts_de)
+
         return self
 
-    def transform(self: Self, X: pd.DataFrame) -> np.ndarray | csr_matrix:
+    def transform(self: Self, X: pd.DataFrame) -> csr_matrix:
         """Transform text data into a combined TF-IDF feature matrix."""
-        if not all(
-            col in X.columns 
-            for col in ['processed_text', 'description_lang']
-        ):
-            raise ValueError(
-                "Input DataFrame must contain 'processed_text' "
-                "and 'description_lang' columns"
-            )
+        results = []
+        for _, row in X.iterrows():
+            if row['description_lang'] == 'en':
+                results.append(
+                    self.vectorizer_en.transform([row['processed_text']])
+                )
+            else:
+                results.append(
+                    self.vectorizer_de.transform([row['processed_text']])
+                )
 
-        texts_en = X[X['description_lang'] == 'en']['processed_text']
-        texts_de = X[X['description_lang'] == 'de']['processed_text']
-
-        tfidf_en = self.vectorizer_en.transform(texts_en)
-        tfidf_de = self.vectorizer_de.transform(texts_de)
-
-        # Combine results while preserving original row order
-        tfidf_all = np.zeros((len(X), self.max_features))
-        en_mask = X['description_lang'] == 'en'
-        de_mask = X['description_lang'] == 'de'
-
-        tfidf_all[en_mask] = tfidf_en.toarray()
-        tfidf_all[de_mask] = tfidf_de.toarray()
-
-        return (
-            csr_matrix(tfidf_all) 
-            if isinstance(tfidf_en, csr_matrix) 
-            else tfidf_all
-        )
+        return vstack(results)
 
     def get_feature_names_out(self: Self) -> list[str]:
         """Get output feature names with language prefixes."""
@@ -201,6 +195,7 @@ class LanguageAwareTfidf(BaseEstimator, TransformerMixin):
             f"de_{f}" 
             for f in self.vectorizer_de.get_feature_names_out()
         ]
+
         return en_features + de_features
 
 

@@ -8,9 +8,12 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from .models import JobApplication, JobApplicationDB
 from .services.analytics import AnalyticsService
+from .services.job_predictor.predictor import JobPredictor
 
 
 bp = Blueprint('main', __name__)
+
+predictor = JobPredictor()
 
 
 def is_api_request() -> bool:
@@ -234,3 +237,27 @@ def analytics_timeseries() -> str | dict:
         if is_api_request():
             return jsonify({"error": error_msg}), 500
         abort(500)
+
+
+@bp.route('/predict', methods=['POST'])
+def predict():
+    data = request.get_json()
+    try:
+        german_level = data.get('german_level')
+        proba = predictor.predict(data, german_level)
+        return jsonify({'probability': proba, 'status': 'success'})
+    except Exception as e:
+        return jsonify({'error': str(e), 'status': 'error'}), 400
+
+
+@bp.route('/retrain', methods=['POST'])
+def retrain():
+    try:
+        predictor.train_from_mongodb(
+            db_uri=current_app.config['MONGO_URI'],
+            db_name='jobs_db',
+            collection='labeled_jobs'
+        )
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'error': str(e), 'status': 'error'}), 500

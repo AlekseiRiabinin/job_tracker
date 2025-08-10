@@ -142,6 +142,7 @@ class AnalyticsService:
         ]
         
         result = list(JobApplication.get_db().applications.aggregate(pipeline))
+
         return result[0] if result else {}
 
     @staticmethod
