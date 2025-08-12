@@ -1,52 +1,17 @@
-import os
-import time
+from flask import current_app
 from datetime import datetime
 from typing import Optional, Self, ClassVar, Any
 from pydantic import (
     BaseModel, ConfigDict, Field,
     field_validator, model_validator
 )
-from pymongo import MongoClient
-from pymongo.results import InsertOneResult, UpdateResult, DeleteResult
-from pymongo.errors import ConnectionFailure, OperationFailure
+from pymongo.results import (
+    InsertOneResult,
+    UpdateResult,
+    DeleteResult
+)
+from pymongo.database import Database
 from bson import ObjectId
-
-
-class MongoDBConnection:
-    """Connector to MongoDB."""
-    _client = None
-    _db = None
-
-    @classmethod
-    def get_db(cls: Self) -> Self:
-        """Get MongoDB."""
-        if cls._db is None:
-            cls._client = cls._get_mongo_client()
-            cls._db = cls._client.jobtracker
-        return cls._db
-
-    @classmethod
-    def _get_mongo_client(cls: Self) -> MongoClient:
-        """Establish connection to MongoDB with retry logic."""
-        max_retries = 5
-        retry_delay = 2
-        
-        for attempt in range(max_retries):
-            try:
-                client = MongoClient(
-                    f"mongodb://admin:{os.getenv('MONGO_ROOT_PASSWORD')}@mongo:27017/",
-                    serverSelectionTimeoutMS=5000,
-                    socketTimeoutMS=30000,
-                    connectTimeoutMS=30000,
-                    authSource='admin'
-                )
-                client.admin.command('ping')
-                return client
-            except (ConnectionFailure, OperationFailure) as e:
-                if attempt == max_retries - 1:
-                    raise
-                time.sleep(retry_delay)
-                continue
 
 
 class JobApplicationBase(BaseModel):
@@ -107,6 +72,19 @@ class JobApplicationBase(BaseModel):
             "input_type": "textarea"  # Hint for frontend form
         }
     )
+    ml_meta: dict = Field(
+        default_factory=lambda: {
+            "success_probability": None,
+            "german_level": None,
+            "last_prediction_date": None
+        },
+        exclude=True,
+        description="ML system metadata",
+        json_schema_extra={
+            "frontend_visible": False,
+            "mongo_field": "ml"   # Stores as subdocument
+        }
+    )
 
     @field_validator('status')
     def validate_status(cls: Self, v: str) -> str:
@@ -157,10 +135,52 @@ class JobApplicationDB(JobApplicationBase):
 
 class JobApplication:
     """Handles CRUD operations for job applications in MongoDB."""
-    
+
+    @classmethod
+    def calculate_success_metrics(cls: Self, application: dict) -> dict:
+        """Calculate success metrics based on application progress."""
+        status = application['status']
+        current_date = datetime.now()
+        
+        # Base success probability based on status hierarchy
+        status_weights = {
+            "Applied": 0.1,
+            "Interview/Phone": 0.3,
+            "Interview/Technical": 0.6,
+            "Interview/Onsite": 0.8,
+            "Offer": 1.0,
+            "Rejected": 0.0,
+            "Ghosted": 0.05
+        }
+
+        # Time decay factor (recent applications get more weight)
+        days_since_applied = (current_date - application['applied_date']).days
+        time_factor = max(0, 1 - (days_since_applied / 90))  # 3-month half-life
+        
+        # Response time bonus (faster responses = better odds)
+        response_bonus = 0
+        if application.get('response_date'):
+            response_days = (
+                application['response_date'] - application['applied_date']
+            ).days
+            response_bonus = 0.2 * (1 - min(response_days, 14) / 14)  # Up to 20% bonus
+            
+        # Calculate composite probability
+        base_prob = status_weights.get(status, 0)
+        composite_prob = min(1, base_prob * (1 + time_factor) / 2 + response_bonus)
+        
+        return {
+            "success_probability": round(composite_prob, 2),
+            "confidence_factor": time_factor,
+            "last_calculated": current_date
+        }
+
     @staticmethod
-    def get_db() -> MongoDBConnection:
-        return MongoDBConnection.get_db()
+    def get_db() -> Database:
+        """Get MongoDB instance from Flask app context."""
+        if not current_app:
+            raise RuntimeError("Not in Flask application context")
+        return current_app.db
     
     @staticmethod
     def create(data: dict[str, str | datetime]) -> InsertOneResult:
@@ -176,7 +196,12 @@ class JobApplication:
         """Retrieve all applications sorted by newest first."""
         return [
             JobApplicationDB(**app) 
-            for app in JobApplication.get_db().applications.find().sort("applied_date", -1)
+            for app in (
+                JobApplication.get_db()
+                    .applications
+                    .find()
+                    .sort("applied_date", -1)
+            )
         ]
 
     @staticmethod
@@ -191,4 +216,37 @@ class JobApplication:
     @staticmethod
     def delete(job_id: str) -> DeleteResult:
         """Delete an application by ID."""
-        return JobApplication.get_db().applications.delete_one({"_id": ObjectId(job_id)})
+        return JobApplication.get_db().applications.delete_one(
+            {"_id": ObjectId(job_id)}
+        )
+
+    @staticmethod
+    def set_ml_prediction(
+        job_id: str,
+        probability: float,
+        german_level: str
+    ) -> None:
+        """Safe update method for ML service."""
+        JobApplication.get_db().applications.update_one(
+            {"_id": ObjectId(job_id)},
+            {"$set": {
+                "ml.success_probability": probability,
+                "ml.german_level": german_level,
+                "ml.last_prediction_date": datetime.now()
+            }}
+        )
+    
+    @staticmethod
+    def get_ml_training_data() -> list[dict]:
+        """For job_predictor service only."""
+        return [
+            {
+                "vacancy_description": app.vacancy_description,
+                "role": app.role,
+                "source": app.source,
+                **app.ml_meta
+            }
+            for app in JobApplication.get_db().applications.find(
+                {"vacancy_description": {"$exists": True}}
+            )
+        ]

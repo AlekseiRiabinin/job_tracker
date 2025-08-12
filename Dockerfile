@@ -21,13 +21,15 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
-COPY . .
+COPY app ./app
+COPY wsgi.py .
+COPY migrations ./migrations
 
 # Security hardening
 RUN useradd -m appuser && \
     chown -R appuser:appuser /app && \
     find /app -type d -exec chmod 755 {} \; && \
-    find /app -type f -exec chmod 644 {} \;
+    find /app -type f -exec chmod 644 {} \; &&
 
 USER appuser
 

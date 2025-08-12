@@ -253,11 +253,10 @@ def predict():
 @bp.route('/retrain', methods=['POST'])
 def retrain():
     try:
-        predictor.train_from_mongodb(
-            db_uri=current_app.config['MONGO_URI'],
-            db_name='jobs_db',
-            collection='labeled_jobs'
-        )
-        return jsonify({'status': 'success'})
+        metrics = current_app.predictor.train_from_mongodb()
+        return jsonify({
+            'status': 'success',
+            'metrics': metrics
+        })
     except Exception as e:
         return jsonify({'error': str(e), 'status': 'error'}), 500
