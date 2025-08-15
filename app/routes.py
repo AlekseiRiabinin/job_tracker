@@ -1,25 +1,25 @@
-from datetime import datetime, timezone
+import traceback
 from flask import (
     Blueprint, current_app, request,
     redirect, url_for, abort, jsonify,
-    render_template
+    render_template, flash
 )
+from datetime import datetime, timezone
+from typing import Any
 from bson import ObjectId
 from bson.errors import InvalidId
 from .models import JobApplication, JobApplicationDB
 from .services.analytics import AnalyticsService
-from .services.job_predictor.predictor import JobPredictor
 
 
 bp = Blueprint('main', __name__)
-
-predictor = JobPredictor()
 
 
 def is_api_request() -> bool:
     """Check if request prefers JSON (API) or HTML (web)."""
     return (
         request.args.get('format') == 'json' or
+        request.headers.get('Content-Type') == 'application/json' or
         (request.accept_mimetypes.accept_json and 
          not request.accept_mimetypes.accept_html)
     )
@@ -239,24 +239,138 @@ def analytics_timeseries() -> str | dict:
         abort(500)
 
 
-@bp.route('/predict', methods=['POST'])
-def predict():
-    data = request.get_json()
-    try:
-        german_level = data.get('german_level')
-        proba = predictor.predict(data, german_level)
-        return jsonify({'probability': proba, 'status': 'success'})
-    except Exception as e:
-        return jsonify({'error': str(e), 'status': 'error'}), 400
-
-
 @bp.route('/retrain', methods=['POST'])
-def retrain():
+def retrain() -> dict[str, Any] | str:
+    """Handle model retraining requests."""
     try:
+        if not current_app.predictor.is_ready():
+            error_msg = "Predictor not initialized"
+
+            if is_api_request():
+                return jsonify({
+                    'status': 'error',
+                    'error': error_msg
+                }), 503
+
+            flash(error_msg, 'danger')
+            return redirect(url_for('main.index'))
+
         metrics = current_app.predictor.train_from_mongodb()
-        return jsonify({
-            'status': 'success',
-            'metrics': metrics
-        })
+        
+        if is_api_request():
+            return jsonify({
+                'status': 'success',
+                'metrics': metrics,
+                'model_version': metrics.get('model_version')
+            })
+            
+        flash(
+            f"Model retrained successfully "
+            f"(v{metrics['model_version']})", 'success'
+        )
+        return redirect(url_for('main.index'))
+
+    except ValueError as e:
+        error_msg = f"Validation error: {str(e)}"
+
+        if is_api_request():
+            return jsonify({
+                'status': 'error',
+                'error': error_msg,
+                'type': 'validation_error'
+            }), 400
+        flash(error_msg, 'warning')
+        return redirect(url_for('main.index'))
+        
     except Exception as e:
-        return jsonify({'error': str(e), 'status': 'error'}), 500
+        current_app.logger.error(
+            f"Retraining failed: {str(e)}\n{traceback.format_exc()}"
+        )
+        error_msg = "Model retraining failed"
+
+        if is_api_request():
+            return jsonify({
+                'status': 'error',
+                'error': error_msg,
+                'details': str(e)
+            }), 500
+        flash(error_msg, 'danger')
+        return redirect(url_for('main.index'))
+
+@bp.route('/predict', methods=['POST'])
+def predict() -> dict[str, Any] | str:
+    """Handle prediction requests from both API and forms."""
+    form_data = (
+        request.form 
+        if not is_api_request() 
+        else request.get_json()
+    )
+
+    data = form_data if is_api_request() else {
+        'vacancy_description': form_data.get('description'),
+        'role': form_data.get('role'),
+        'source': form_data.get('source'),
+        'german_level': form_data.get('german_level')
+    }
+    
+    required_fields = {'vacancy_description', 'role', 'source'}
+    if not all(field in data for field in required_fields):
+        error_msg = (
+            f"Missing required fields: "
+            f"{required_fields - set(data.keys())}"
+        )
+        if is_api_request():
+            return jsonify({
+                'status': 'error',
+                'error': error_msg
+            }), 400
+        flash(error_msg, 'warning')
+        return redirect(url_for('main.index'))
+
+    try:
+        proba = current_app.predictor.predict(
+            job_data={
+                'vacancy_description': data['vacancy_description'],
+                'role': data['role'],
+                'source': data['source']
+            },
+            german_level=data.get('german_level')
+        )
+
+        if is_api_request():
+            return jsonify({
+                'status': 'success',
+                'probability': proba,
+                'model_version': current_app.predictor.model_version
+            })
+            
+        flash(f"Success probability: {proba:.0%}", 'info')
+        return redirect(url_for('main.index'))
+
+    except ValueError as e:
+        error_msg = f"Input error: {str(e)}"
+
+        if is_api_request():
+            return jsonify({
+                'status': 'error',
+                'error': error_msg,
+                'type': 'validation_error'
+            }), 400
+        flash(error_msg, 'warning')
+        return redirect(url_for('main.index'))
+        
+    except Exception as e:
+        current_app.logger.error(
+            f"Prediction failed: "
+            f"{str(e)}\n{traceback.format_exc()}"
+        )
+        error_msg = "Prediction service unavailable"
+
+        if is_api_request():
+            return jsonify({
+                'status': 'error',
+                'error': error_msg,
+                'details': str(e)
+            }), 500
+        flash(error_msg, 'danger')
+        return redirect(url_for('main.index'))

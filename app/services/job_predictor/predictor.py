@@ -1,6 +1,8 @@
 import os
 import joblib
+import traceback
 import pandas as pd
+from flask import current_app
 from datetime import datetime
 from typing import Self, Optional
 from sklearn.pipeline import Pipeline ,make_pipeline
@@ -8,6 +10,7 @@ from sklearn.compose import make_column_transformer
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
 from .feature_engine import (
     TechStackTransformer,
     LanguageAwareTfidf,
@@ -26,95 +29,115 @@ class JobPredictor:
         """Initialize prediction service."""
         self.model_version = "1.0"
         self.feature_processor = create_enhanced_features
+        self._model_dir = os.path.abspath('models')
 
-        if train_mode and db_config:
+        if train_mode:
+            if not db_config:
+                raise ValueError("db_config required when train_mode=True")
             self.train_from_mongodb(**db_config)
         else:
-            self.pipeline = self._load_model(
-                model_path or 'models/enhanced_model.pkl'
-            )
+            model_path = model_path or self._get_latest_model()
+            self.pipeline = self._load_model(model_path)
 
-    def _load_model(self: Self, path: str) -> Pipeline:
-        """Load serialized model pipeline."""
-        return joblib.load(path)
+            if 'v' in os.path.basename(model_path):
+                self.model_version = (
+                    os.path
+                        .basename(model_path)
+                        .split('_v')[1]
+                        .split('_')[0]
+                )
 
     def train_from_mongodb(
         self: Self,
         test_size: float = 0.2,
-        random_state: int = 42
-    ) -> None:
-        """Train model using data from MongoDB collection."""
+        random_state: int = 42,
+    ) -> dict[str, object]:
+        """Train and version a new model from MongoDB data."""
         try:
-            from flask import current_app
-            
             db = current_app.db
-            target_field = 'ml.success_probability'
-            model_dir = current_app.config['ML_MODEL_DIR']
-            
             data = pd.DataFrame(list(db.applications.find(
                 {
-                    "vacancy_description": {"$exists": True},
-                    target_field: {"$exists": True}
+                    "vacancy_description": {"$exists": True, "$ne": ""},
+                    "ml.success_probability": {"$exists": True, "$ne": None}
                 },
                 {
                     "vacancy_description": 1,
                     "role": 1,
                     "source": 1,
-                    "ml": 1,
+                    "ml.success_probability": 1,
                     "_id": 0
                 }
             )))
             
-            self._validate_training_data(data, target_field)
+            self._validate_training_data(data, 'ml.success_probability')
             
             X = self.feature_processor(data)
-            y = data[target_field].astype(float)
-
+            y = data['ml.success_probability'].astype(float)
+            
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y,
                 test_size=test_size,
                 random_state=random_state,
-                stratify=y
+                stratify=pd.cut(y, bins=[0, 0.3, 0.7, 1.0])
             )
             
+            self.model_version = self._increment_version()
             self.pipeline = create_pipeline()
             self.pipeline.fit(X_train, y_train)
             
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            model_path = os.path.join(
-                model_dir,
-                f"model_v{self.model_version}_{timestamp}.pkl"
-            )
+            model_path = self._save_model()
             
-            os.makedirs(model_dir, exist_ok=True)
-            joblib.dump(self.pipeline, model_path)
-            
-            latest_path = os.path.join(model_dir, "latest_model.txt")
-            with open(latest_path, 'w') as f:
-                f.write(os.path.basename(model_path))
-            
+            y_pred_proba = self.pipeline.predict_proba(X_test)[:, 1]
             metrics = {
+                "model_version": self.model_version,
                 "train_accuracy": float(self.pipeline.score(X_train, y_train)),
                 "test_accuracy": float(self.pipeline.score(X_test, y_test)),
-                "model_path": model_path,
+                "roc_auc": float(roc_auc_score(y_test, y_pred_proba)),
+                "feature_count": X.shape[1],
                 "samples": {
                     "total": len(data),
                     "train": len(X_train),
-                    "test": len(X_test)
-                }
+                    "test": len(X_test),
+                    "cats": self._get_class_distribution(y_train, y_test)
+                },
+                "model_path": model_path
             }
-            
+
             current_app.logger.info(
-                f"Training complete. "
-                f"Train accuracy: {metrics['train_accuracy']:.2f}, "
-                f"Test accuracy: {metrics['test_accuracy']:.2f}"
+                f"Training successful - v{self.model_version}\n"
+                f"Test Accuracy: {metrics['test_accuracy']:.2f}, "
+                f"AUC: {metrics['roc_auc']:.2f}"
             )
-            
+
             return metrics
             
+        except ValueError as e:
+            current_app.logger.error(f"Data validation failed: {str(e)}")
+            raise
         except Exception as e:
-            current_app.logger.error(f"Training failed: {str(e)}")
-            raise RuntimeError(f"Training failed: {str(e)}") from e
+            current_app.logger.error(
+                f"Training failed: {str(e)}\n{traceback.format_exc()}"
+            )
+            if hasattr(self, 'pipeline'):
+                del self.pipeline
+            raise RuntimeError(f"Training aborted: {str(e)}") from e
+
+    def _get_class_distribution(
+        self: Self,
+        y_train: pd.Series,
+        y_test: pd.Series
+    ) -> dict[str, dict[float, float]]:
+        """Calculate class distribution for train/test sets."""
+
+        def _calculate_dist(y: pd.Series) -> dict[float, float]:
+            if hasattr(y, 'value_counts'):
+                return y.value_counts(normalize=True).round(2).to_dict()
+            return {}
+
+        return {
+            "train": _calculate_dist(y_train),
+            "test": _calculate_dist(y_test)
+        }
 
     def _validate_training_data(
         self: Self,
@@ -122,33 +145,72 @@ class JobPredictor:
         target_field: str
     ) -> None:
         """Validate training data meets requirements."""
+
         if len(data) < 100:
             raise ValueError(
                 f"Insufficient samples ({len(data)}). Need ≥100 records"
             )
+        
         if target_field not in data.columns:
             raise ValueError(
-                f"Target field '{target_field}' not found"
+                f"Target field '{target_field}' not found in data"
             )
+        
         if data[target_field].isna().any():
             raise ValueError(
-                f"Null values found in target field"
+                f"Null values found in target field '{target_field}'"
             )
-        if not all(
-            0 <= val <= 1 
-            for val in data[target_field].dropna()
-        ):
+        
+        if not all(0 <= val <= 1 for val in data[target_field].dropna()):
             raise ValueError(
-                "Target values must be between 0.0 and 1.0"
+                f"Target values in '{target_field}' must be between 0.0 and 1.0"
             )
-
+        
         required_features = ['vacancy_description', 'role', 'source']
-        missing = [
-            f for f in required_features 
-            if f not in data.columns
-        ]
+        missing = [f for f in required_features if f not in data.columns]
         if missing:
             raise ValueError(f"Missing required features: {missing}")
+        
+        if any(not isinstance(desc, str) or len(desc) < 50 
+        for desc in data['vacancy_description']):
+            raise ValueError(
+                "All vacancy descriptions must be strings ≥50 characters"
+            )
+
+    def _load_model(self: Self, path: str) -> Pipeline:
+        """Load serialized model pipeline."""
+        return joblib.load(path)
+
+    def _get_latest_model(self: Self) -> str:
+        """Resolve latest model path."""
+        latest_path = os.path.join(self._model_dir, 'latest_model.txt')
+
+        if os.path.exists(latest_path):
+            with open(latest_path) as f:
+                return os.path.join(self._model_dir, f.read().strip())
+        return os.path.join(self._model_dir, 'enhanced_model.pkl')
+
+    def _increment_version(self: Self) -> str:
+        """Generate next semantic version."""
+        major, minor = map(int, self.model_version.split('.'))
+        return f"{major}.{minor + 1}"
+
+    def _save_model(self: Self) -> str:
+        """Save pipeline with versioned filename."""
+        os.makedirs(self._model_dir, exist_ok=True)
+
+        model_path = os.path.join(
+            self._model_dir,
+            f"model_v{self.model_version}_{datetime.now().strftime('%Y%m%d')}.pkl"
+        )
+        joblib.dump(self.pipeline, model_path)
+
+        # Update latest reference
+        with open(os.path.join(self._model_dir, 'latest_model.txt'), 'w') as f:
+            f.write(os.path.basename(model_path))
+        
+        return model_path
+
 
     def predict(
         self: Self,
@@ -157,6 +219,7 @@ class JobPredictor:
     ) -> float:
         """Predict job application success probability."""
         REQUIRED_KEYS = {'vacancy_description', 'role', 'source'}
+        PROFICIENCY_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
 
         if not all(key in job_data for key in REQUIRED_KEYS):
             missing = REQUIRED_KEYS - set(job_data.keys())
@@ -164,51 +227,87 @@ class JobPredictor:
 
         try:
             features = self.feature_processor(pd.DataFrame([job_data]))
+            
+            if features.iloc[0]['german_required']:
+                if not german_level:
+                    return 0.0
+                
+                try:
+                    required_idx = PROFICIENCY_ORDER.index(
+                        features.iloc[0]['german_level']
+                    )
+                    user_idx = PROFICIENCY_ORDER.index(german_level)
+                    if required_idx > user_idx:
+                        return 0.0
+                except ValueError:
+                    return 0.0
 
-            if (features.iloc[0]['german_required'] and (
-                not german_level 
-                or features.iloc[0]['german_level'] > german_level
-            )):
-                return 0.0
-
-            return float(self.pipeline.predict_proba(features)[0][1])
+            proba = float(self.pipeline.predict_proba(features)[0][1])
+            return max(0.0, min(1.0, proba))
 
         except Exception as e:
-            raise RuntimeError(f"Prediction failed: {str(e)}")
+            raise RuntimeError(f"Prediction failed: {str(e)}") from e
 
     def get_model_info(self: Self) -> dict:
-        """Get comprehensive model metadata."""
-        if not hasattr(self, 'pipeline'):
-            raise RuntimeError("Model not loaded or trained")
-        
-        model_path = 'models/enhanced_model.pkl'
-        last_retrained = "Unknown"
-        if os.path.exists(model_path):
-            last_retrained = datetime.fromtimestamp(
-                os.path.getmtime(model_path)
-                .strftime('%Y-%m-%d %H:%M:%S')
-            )
-        
-        feature_names = []
+        """Get model metadata with pipeline configuration."""
+        if not hasattr(self, 'pipeline') or not self.pipeline:
+            raise RuntimeError("Model pipeline not initialized")
+
+        info = {
+            "version": getattr(self, 'model_version', 'unversioned'),
+            "last_retrained": self._get_model_timestamp(),
+            "model_type": self.pipeline[-1].__class__.__name__,
+            "feature_count": 0,
+            "pipeline_steps": []
+        }
+
         try:
             ct = self.pipeline.named_steps.get('columntransformer')
             if ct:
-                feature_names = list(ct.get_feature_names_out())
-        except Exception as e:
-            feature_names = [f"Error: {str(e)}"]
+                info['features'] = list(ct.get_feature_names_out())
+                info['feature_count'] = len(info['features'])
+                
+                info['pipeline_steps'] = [
+                    {
+                        'transformer': str(transformer.__class__.__name__),
+                        'columns': columns,
+                        'params': transformer.get_params()
+                    }
+                    for transformer, columns, _ in ct.transformers_
+                ]
 
-        model_stats = {}
+            gb = self.pipeline.named_steps.get('gradientboostingclassifier')
+            if gb:
+                info['classifier_params'] = {
+                    'n_estimators': gb.n_estimators,
+                    'learning_rate': gb.learning_rate,
+                    'max_depth': gb.max_depth,
+                    'class_weight': str(gb.class_weight)
+                }
+
+        except Exception as e:
+            current_app.logger.error(f"Failed to extract pipeline info: {str(e)}")
+            info['error'] = f"Metadata incomplete: {str(e)}"
+
         if hasattr(self, 'training_metrics'):
-            model_stats.update(self.training_metrics)
-        
-        return {
-            "version": self.model_version,
-            "last_retrained": last_retrained,
-            "features": feature_names,
-            "model_type": str(self.pipeline[-1].__class__.__name__),
-            "feature_count": len(feature_names),
-            **model_stats
-        }
+            info.update({
+                k: v for k, v in self.training_metrics.items()
+                if not k.startswith('_')
+            })
+
+        return info
+
+    def _get_model_timestamp(self: Self) -> str:
+        """Get last retrained timestamp safely."""
+        model_path = os.path.join('models', 'enhanced_model.pkl')
+        try:
+            if os.path.exists(model_path):
+                return datetime.fromtimestamp(
+                    os.path.getmtime(model_path)
+                ).isoformat()
+        except OSError:
+            pass
+        return "unknown"
 
 
 def create_pipeline():

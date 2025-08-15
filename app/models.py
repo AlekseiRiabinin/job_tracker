@@ -156,7 +156,7 @@ class JobApplication:
         # Time decay factor (recent applications get more weight)
         days_since_applied = (current_date - application['applied_date']).days
         time_factor = max(0, 1 - (days_since_applied / 90))  # 3-month half-life
-        
+
         # Response time bonus (faster responses = better odds)
         response_bonus = 0
         if application.get('response_date'):
@@ -164,11 +164,11 @@ class JobApplication:
                 application['response_date'] - application['applied_date']
             ).days
             response_bonus = 0.2 * (1 - min(response_days, 14) / 14)  # Up to 20% bonus
-            
+
         # Calculate composite probability
         base_prob = status_weights.get(status, 0)
         composite_prob = min(1, base_prob * (1 + time_factor) / 2 + response_bonus)
-        
+
         return {
             "success_probability": round(composite_prob, 2),
             "confidence_factor": time_factor,
@@ -181,15 +181,6 @@ class JobApplication:
         if not current_app:
             raise RuntimeError("Not in Flask application context")
         return current_app.db
-    
-    @staticmethod
-    def create(data: dict[str, str | datetime]) -> InsertOneResult:
-        """Insert a new job application into the database."""
-        app_data = JobApplicationCreate(**data).model_dump(exclude_unset=True)
-
-        if not app_data.get('applied_date'):
-            app_data['applied_date'] = datetime.now()
-        return JobApplication.get_db().applications.insert_one(app_data)
 
     @staticmethod
     def get_all() -> list[JobApplicationDB]:
@@ -205,9 +196,50 @@ class JobApplication:
         ]
 
     @staticmethod
+    def create(data: dict[str, str | datetime]) -> InsertOneResult:
+        """Insert a new job application with auto-calculated ML metrics."""
+        app_data = JobApplicationCreate(**data).model_dump(exclude_unset=True)
+
+        if not app_data.get('applied_date'):
+            app_data['applied_date'] = datetime.now()
+
+        # Initialize ml_meta if not present
+        app_data.setdefault('ml_meta', {})
+
+        if 'status' in app_data:
+            metrics = JobApplication.calculate_success_metrics({
+                'status': app_data['status'],
+                'applied_date': app_data['applied_date'],
+                'response_date': app_data.get('response_date')
+            })
+            app_data['ml_meta'].update(metrics)
+
+        return JobApplication.get_db().applications.insert_one(app_data)
+
+    @staticmethod
     def update(job_id: str, data: dict[str, str]) -> UpdateResult:
-        """Update application fields."""
+        """Update application with recalculated ML metrics when status changes."""
         update_data = JobApplicationCreate(**data).model_dump(exclude_unset=True)
+        
+        if 'status' in update_data:
+            current = JobApplication.get_db().applications.find_one(
+                {"_id": ObjectId(job_id)},
+                {"applied_date": 1, "response_date": 1, "ml_meta": 1}
+            )
+
+            if current:
+                metrics = JobApplication.calculate_success_metrics({
+                    'status': update_data['status'],
+                    'applied_date': current.get('applied_date', datetime.now()),
+                    'response_date': current.get('response_date')
+                })
+
+                # Preserve existing ml_meta fields not being updated
+                update_data['ml_meta'] = {
+                    **current.get('ml_meta', {}),
+                    **metrics
+                }
+
         return JobApplication.get_db().applications.update_one(
             {"_id": ObjectId(job_id)},
             {"$set": update_data}
@@ -235,7 +267,7 @@ class JobApplication:
                 "ml.last_prediction_date": datetime.now()
             }}
         )
-    
+
     @staticmethod
     def get_ml_training_data() -> list[dict]:
         """For job_predictor service only."""
