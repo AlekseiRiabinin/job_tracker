@@ -1,18 +1,20 @@
 import traceback
 from flask import (
-    Blueprint, current_app, request,
+    Blueprint, Response, current_app, request,
     redirect, url_for, abort, jsonify,
     render_template, flash
 )
 from datetime import datetime, timezone
-from typing import Any
 from bson import ObjectId
 from bson.errors import InvalidId
+from werkzeug.wrappers.response import Response as WerkzeugResponse
 from .models import JobApplication, JobApplicationDB
 from .services.analytics import AnalyticsService
 
 
 bp = Blueprint('main', __name__)
+
+type FlaskResponse = Response | WerkzeugResponse | str
 
 
 def is_api_request() -> bool:
@@ -26,7 +28,7 @@ def is_api_request() -> bool:
 
 
 @bp.route('/', methods=['GET'])
-def index() -> str | dict:
+def index() -> FlaskResponse:
     """Display all applications (HTML or JSON)."""
     try:
         jobs = JobApplication.get_all()
@@ -51,7 +53,7 @@ def index() -> str | dict:
 
 
 @bp.route('/add', methods=['GET', 'POST'])
-def add_job() -> str | dict:
+def add_job() -> FlaskResponse:
     """Handle job application creation."""
     if request.method == 'POST':
         try:
@@ -90,7 +92,7 @@ def add_job() -> str | dict:
 
 
 @bp.route('/edit/<job_id>', methods=['GET', 'POST'])
-def edit_job(job_id: str) -> str | dict:
+def edit_job(job_id: str) -> FlaskResponse:
     """Handle editing job applications."""
     try:
         job = JobApplication.get_db().applications.find_one({"_id": ObjectId(job_id)})
@@ -135,7 +137,7 @@ def edit_job(job_id: str) -> str | dict:
 
 
 @bp.route('/delete/<job_id>', methods=['DELETE', 'GET'])
-def delete_job(job_id: str) -> str | dict:
+def delete_job(job_id: str) -> FlaskResponse:
     """Handle application deletion."""
     try:
         JobApplication.delete(job_id)
@@ -152,7 +154,7 @@ def delete_job(job_id: str) -> str | dict:
 
 
 @bp.route('/analytics/summary', methods=['GET'])
-def analytics_summary() -> str | dict:
+def analytics_summary() -> FlaskResponse:
     """Display comprehensive summary statistics for job applications."""
     try:
         stats = {
@@ -239,80 +241,86 @@ def analytics_timeseries() -> str | dict:
         abort(500)
 
 
-@bp.route('/retrain', methods=['POST'])
-def retrain() -> dict[str, Any] | str:
-    """Handle model retraining requests."""
-    try:
-        if not current_app.predictor.is_ready():
-            error_msg = "Predictor not initialized"
+@bp.route('/ml/predict', methods=['GET', 'POST'])
+def ml_predict() -> FlaskResponse:
+    """Handle prediction requests."""
 
-            if is_api_request():
-                return jsonify({
-                    'status': 'error',
-                    'error': error_msg
-                }), 503
-
-            flash(error_msg, 'danger')
-            return redirect(url_for('main.index'))
-
-        metrics = current_app.predictor.train_from_mongodb()
-        
+    # Service availability check
+    if (
+        not hasattr(current_app, 'predictor') 
+        or current_app.predictor is None
+    ):
+        error_msg = "Prediction service is not available"
         if is_api_request():
-            return jsonify({
-                'status': 'success',
-                'metrics': metrics,
-                'model_version': metrics.get('model_version')
-            })
-            
-        flash(
-            f"Model retrained successfully "
-            f"(v{metrics['model_version']})", 'success'
-        )
-        return redirect(url_for('main.index'))
-
-    except ValueError as e:
-        error_msg = f"Validation error: {str(e)}"
-
-        if is_api_request():
-            return jsonify({
-                'status': 'error',
-                'error': error_msg,
-                'type': 'validation_error'
-            }), 400
-        flash(error_msg, 'warning')
-        return redirect(url_for('main.index'))
-        
-    except Exception as e:
-        current_app.logger.error(
-            f"Retraining failed: {str(e)}\n{traceback.format_exc()}"
-        )
-        error_msg = "Model retraining failed"
-
-        if is_api_request():
-            return jsonify({
-                'status': 'error',
-                'error': error_msg,
-                'details': str(e)
-            }), 500
+            return jsonify(
+                {'status': 'error', 'error': error_msg}
+            ), 503
         flash(error_msg, 'danger')
         return redirect(url_for('main.index'))
 
-@bp.route('/predict', methods=['POST'])
-def predict() -> dict[str, Any] | str:
-    """Handle prediction requests from both API and forms."""
-    form_data = (
-        request.form 
-        if not is_api_request() 
-        else request.get_json()
+    # Model readiness check
+    model_ready = (
+        hasattr(current_app.predictor, 'pipeline') and 
+        current_app.predictor.pipeline is not None
+    )
+    model_version = getattr(
+        current_app.predictor, 'model_version', '0.0'
     )
 
-    data = form_data if is_api_request() else {
+    # GET Request Handling
+    if request.method == 'GET':
+        base_vars = {
+            'model_ready': model_ready,
+            'model_version': model_version,
+            'prediction': None,
+            'error': None
+        }
+
+        if is_api_request():
+            return jsonify({
+                'status': 'success' if model_ready else 'error',
+                'model_ready': model_ready,
+                'model_version': model_version,
+                'message': (
+                    'Model is ready' 
+                    if model_ready 
+                    else 'Model not trained yet'
+                )
+            }), (200 if model_ready else 503)
+            
+        return render_template('dashboard/predict.html', **base_vars)
+
+    # POST Request Handling
+    if not model_ready:
+        error_msg = (
+            f"Model not trained yet. "
+            f"Please retrain the model first."
+        )
+        if is_api_request():
+            return jsonify({
+                'status': 'error',
+                'error': error_msg,
+                'solution': 'Retrain the model first',
+                'retrain_endpoint': url_for('main.ml_retrain')
+            }), 503
+        flash(error_msg, 'warning')
+        return redirect(url_for('main.ml_retrain'))
+
+    # Process Prediction Request
+    form_data = (
+        request.get_json() 
+        if is_api_request() 
+        else request.form
+    )
+    
+    data = {
         'vacancy_description': form_data.get('description'),
         'role': form_data.get('role'),
         'source': form_data.get('source'),
         'german_level': form_data.get('german_level')
     }
-    
+
+    # Validate Required Fields
     required_fields = {'vacancy_description', 'role', 'source'}
     if not all(field in data for field in required_fields):
         error_msg = (
@@ -322,11 +330,15 @@ def predict() -> dict[str, Any] | str:
         if is_api_request():
             return jsonify({
                 'status': 'error',
-                'error': error_msg
+                'error': error_msg,
+                'missing_fields': (
+                    list(required_fields - set(data.keys()))
+                )
             }), 400
         flash(error_msg, 'warning')
-        return redirect(url_for('main.index'))
+        return redirect(url_for('main.ml_predict'))
 
+    # Attempt Prediction
     try:
         proba = current_app.predictor.predict(
             job_data={
@@ -340,16 +352,26 @@ def predict() -> dict[str, Any] | str:
         if is_api_request():
             return jsonify({
                 'status': 'success',
-                'probability': proba,
-                'model_version': current_app.predictor.model_version
+                'probability': float(proba),
+                'model_version': model_version,
+                'prediction_meta': {
+                    'threshold': 0.5,  # Example value
+                    'result': 'Probability of application success'
+                }
             })
-            
-        flash(f"Success probability: {proba:.0%}", 'info')
-        return redirect(url_for('main.index'))
+
+        return render_template(
+            'dashboard/predict.html',
+            prediction={
+                'probability': float(proba),
+                'model_version': model_version
+            },
+            model_ready=True,
+            error=None
+        )
 
     except ValueError as e:
-        error_msg = f"Input error: {str(e)}"
-
+        error_msg = f"Input validation error: {str(e)}"
         if is_api_request():
             return jsonify({
                 'status': 'error',
@@ -357,20 +379,115 @@ def predict() -> dict[str, Any] | str:
                 'type': 'validation_error'
             }), 400
         flash(error_msg, 'warning')
-        return redirect(url_for('main.index'))
+        return redirect(url_for('main.ml_predict'))
         
     except Exception as e:
         current_app.logger.error(
             f"Prediction failed: "
             f"{str(e)}\n{traceback.format_exc()}"
         )
-        error_msg = "Prediction service unavailable"
-
+        error_msg = "Prediction service encountered an error"
         if is_api_request():
             return jsonify({
                 'status': 'error',
                 'error': error_msg,
-                'details': str(e)
+                'error_details': str(e),
+                'support_contact': 'aleksei.riabinin@yahoo.com'
             }), 500
         flash(error_msg, 'danger')
+        return redirect(url_for('main.ml_predict'))
+
+@bp.route('/ml/retrain', methods=['GET', 'POST'])
+def ml_retrain() -> FlaskResponse:
+    """Handle retraining requests from both web and API."""
+
+    if (
+        not hasattr(current_app, 'predictor') 
+        or current_app.predictor is None
+    ):
+        error_msg = "ML service is not available"
+        if is_api_request():
+            return jsonify({'status': 'error', 'error': error_msg}), 503
+        flash(error_msg, 'danger')
         return redirect(url_for('main.index'))
+
+    if request.method == 'POST':
+        if not is_api_request() and not request.form.get('confirm'):
+            flash("You must confirm the retraining operation", 'warning')
+            return redirect(url_for('main.ml_retrain'))
+
+        try:
+            metrics = current_app.predictor.train_from_mongodb()
+
+            if is_api_request():
+                return jsonify({
+                    'status': 'success',
+                    'metrics': metrics,
+                    'model_version': metrics.get('model_version')
+                })
+
+            return render_template(
+                'dashboard/retrain.html',
+                current_model={
+                    'version': metrics['model_version'],
+                    'last_retrained': datetime.now().isoformat(),
+                    'model_type': 'GradientBoostingClassifier'
+                },
+                training_result=metrics)
+        
+        except ValueError as e:
+            error_msg = f"Validation error: {str(e)}"
+            if is_api_request():
+                return jsonify({
+                    'status': 'error',
+                    'error': error_msg,
+                    'type': 'validation_error'
+                }), 400
+            flash(error_msg, 'warning')
+            return redirect(url_for('main.ml_retrain'))
+            
+        except Exception as e:
+            current_app.logger.error(
+                f"Retraining failed: "
+                f"{str(e)}\n{traceback.format_exc()}"
+            )
+            error_msg = "Model retraining failed"
+            if is_api_request():
+                return jsonify({
+                    'status': 'error',
+                    'error': error_msg,
+                    'details': str(e)
+                }), 500
+            flash(error_msg, 'danger')
+            return redirect(url_for('main.ml_retrain'))
+
+    # GET request - show current model status
+    model_ready = (
+        hasattr(current_app.predictor, 'pipeline') and 
+        current_app.predictor.pipeline is not None
+    )
+    
+    model_info = {
+        'version': current_app.predictor.model_version,
+        'last_retrained': (
+            datetime.now().isoformat() if model_ready 
+            else "Never"
+        ),
+        'model_type': 'GradientBoostingClassifier',
+        'is_ready': model_ready
+    }
+
+    if is_api_request():
+        return jsonify({
+            'status': 'success',
+            'model_info': model_info,
+            'message': (
+                'Model is ready' if model_ready 
+                else 'Model not trained yet'
+            )
+        })
+
+    return render_template(
+        'dashboard/retrain.html', 
+        current_model=model_info
+    )

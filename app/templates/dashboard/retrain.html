@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-container">
+    <h1>Retrain Machine Learning Model</h1>
+    
+    <div class="back-button">
+        <a href="{{ url_for('main.index') }}" class="button">← Back to Applications</a>
+    </div>
+    
+    <div class="model-info">
+        <h3>Current Model</h3>
+        <p><strong>Version:</strong> {{ current_model.version }}</p>
+        <p><strong>Last Trained:</strong> {{ current_model.last_retrained }}</p>
+        <p><strong>Type:</strong> {{ current_model.model_type }}</p>
+    </div>
+    
+    <div class="ml-form">
+        <form method="POST" action="{{ url_for('main.ml_retrain') }}">
+            <div class="form-group warning-box">
+                <p>⚠️ Retraining will:</p>
+                <ul>
+                    <li>Use all available application data</li>
+                    <li>Take several minutes to complete</li>
+                    <li>Temporarily disable predictions</li>
+                </ul>
+            </div>
+            
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="confirm" required>
+                    I understand and want to proceed
+                </label>
+            </div>
+            
+            <button type="submit" class="button warning-button">Retrain Model</button>
+        </form>
+    </div>
+    
+    {% if training_result %}
+    <div class="training-result">
+        <h3>Training Results</h3>
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-value">{{ (training_result.test_accuracy * 100)|round(1) }}%</div>
+                <div class="metric-label">Test Accuracy</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">{{ (training_result.roc_auc * 100)|round(1) }}%</div>
+                <div class="metric-label">ROC AUC</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">{{ training_result.samples.total }}</div>
+                <div class="metric-label">Total Samples</div>
+            </div>
+        </div>
+        <p class="model-version">New Model Version: {{ training_result.model_version }}</p>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+  .dashboard-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  .back-button {
+    margin-bottom: 20px;
+  }
+  
+  .model-info {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    border: 1px solid #ddd;
+  }
+  
+  .ml-form {
+    background: #f8f9fa;
+    padding: 25px;
+    border-radius: 8px;
+    margin-bottom: 30px;
+    border: 1px solid #ddd;
+  }
+  
+  .warning-box {
+    background: #fff3cd;
+    padding: 15px;
+    border-radius: 4px;
+    border-left: 4px solid #ffc107;
+  }
+  
+  .warning-box ul {
+    margin: 10px 0 0 20px;
+    padding: 0;
+  }
+  
+  .form-group {
+    margin-bottom: 20px;
+  }
+  
+  .form-group label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+  
+  .warning-button {
+    background-color: #d9534f;
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    width: 100%;
+  }
+  
+  .warning-button:hover {
+    background-color: #c9302c;
+  }
+  
+  .training-result {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+  }
+  
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+    margin: 20px 0;
+  }
+  
+  .metric-card {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  
+  .metric-value {
+    font-size: 24px;
+    font-weight: bold;
+    color: #4a6fa5;
+  }
+  
+  .metric-label {
+    font-size: 14px;
+    color: #666;
+  }
+  
+  .model-version {
+    font-size: 14px;
+    color: #666;
+    text-align: center;
+    margin-top: 10px;
+  }
+</style>
+{% endblock %}

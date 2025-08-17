@@ -1,93 +1,99 @@
-import click
 import time
+from typing import Optional
 from flask import Flask
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
 from flasgger import Swagger
 from config import Config
-from .services.data_loader import DataLoader
 from .services.job_predictor.predictor import JobPredictor
 
 
-def create_app() -> Flask:
+def create_app(test_config: Optional[dict] = None) -> Flask:
     """Factory function for creating the Flask application."""
     app = Flask(__name__)
-    app.config.from_object(Config)
-
-    # Initialize extensions
-    Swagger(app)
-
-    # Initialize MongoDB with retry logic
-    max_retries = 5
-    retry_delay = 2
     
-    for attempt in range(max_retries):
-        try:
-            app.mongo_client = MongoClient(
-                app.config['MONGO_URI'],
-                serverSelectionTimeoutMS=5000,
-                socketTimeoutMS=30000,
-                connectTimeoutMS=30000
-            )
-            app.db = app.mongo_client[app.config['MONGO_DB_NAME']]
-            app.db.command('ping')
-            break
-        except (ConnectionFailure, OperationFailure) as e:
-            if attempt == max_retries - 1:
-                raise RuntimeError(
-                    f"Failed to connect to MongoDB after "
-                    f"{max_retries} attempts: {str(e)}"
-                )
-            time.sleep(retry_delay)
-    
+    # Load configuration
+    cfg = Config()
+    app.config.from_object(cfg)
+    if test_config:
+        app.config.update(test_config)
 
-    # Initialize ML predictor
-    app.predictor = JobPredictor(
-        model_path=app.config['ML_MODEL_DIR']
-    )
+    if 'MONGO_URI' not in app.config:
+        raise RuntimeError("MONGO_URI not found in configuration")
 
-    # Register blueprints
-    from . import routes
-    app.register_blueprint(routes.bp)
+    init_swagger(app)
     
-    app.cli.add_command(load_from_json)
-    app.cli.add_command(load_from_csv)
+    try:
+        init_mongodb(app)
+        init_predictor(app)
+    except Exception as e:
+        app.logger.error(f"Service initialization failed: {str(e)}")
+        raise
+
+    register_blueprints(app)
     
     return app
 
 
-@click.command()
-@click.argument('file_path', type=click.Path(exists=True, dir_okay=False))
-def load_from_json(file_path: str) -> None:
-    """Load job applications from a JSON file."""
-    try:
-        DataLoader.load_from_json(file_path)
-        click.echo(f"✅ Successfully loaded data from {file_path}")
-    except Exception as e:
-        click.echo(f"❌ Error loading data: {str(e)}", err=True)
+def init_swagger(app: Flask) -> None:
+    """Initialize Swagger/OpenAPI documentation."""
+    Swagger(app, template={
+        'swagger': '2.0',
+        'info': {
+            'title': 'Job Tracker API',
+            'description': 'API for job applications tracking',
+            'version': app.config.get('API_VERSION', '1.0')
+        },
+        'consumes': ['application/json'],
+        'produces': ['application/json'],
+    })
 
 
-@click.command()
-@click.argument('file_path', type=click.Path(exists=True, dir_okay=False))
-@click.option('--delimiter', default=',', help='CSV delimiter character')
-@click.option('--encoding', default='utf-8', help='File encoding')
-def load_from_csv(file_path: str, delimiter: str, encoding: str) -> None:
-    """Load job applications from a CSV file."""
-    try:
-        DataLoader.load_from_csv(file_path, delimiter=delimiter, encoding=encoding)
-        click.echo(f"✅ Successfully loaded data from {file_path}")
-    except Exception as e:
-        click.echo(f"❌ Error loading data: {str(e)}", err=True)
+def init_mongodb(app: Flask) -> None:
+    """Initialize MongoDB connection with retry logic."""
+    max_retries = app.config.get('MONGO_MAX_RETRIES', 5)
+    retry_delay = app.config.get('MONGO_RETRY_DELAY', 2)
+    
+    for attempt in range(max_retries):
+        try:
+            app.logger.info(
+                f"MongoDB connection attempt "
+                f"{attempt + 1}/{max_retries}"
+            )
+            app.mongo_client = MongoClient(
+                app.config['MONGO_URI'],
+                serverSelectionTimeoutMS=5000,
+                socketTimeoutMS=30000,
+                connectTimeoutMS=30000,
+                appname="job-tracker"
+            )
+            app.db = app.mongo_client[app.config['MONGO_DB_NAME']]
+            app.db.command('ping')
+            app.logger.info("MongoDB connection established")
+            return
+        except (ConnectionFailure, OperationFailure) as e:
+            if attempt == max_retries - 1:
+                raise RuntimeError(
+                    f"MongoDB connection failed after "
+                    f"{max_retries} attempts"
+                ) from e
+            time.sleep(retry_delay)
 
 
-@click.group()
-def cli() -> None:
-    """Job Tracker CLI - Manage job applications data."""
-    pass
+def init_predictor(app: Flask) -> None:
+    """Initialize the ML predictor service."""
+    app.predictor = JobPredictor(
+        model_path=app.config['ML_MODEL_DIR'],
+        major_version=app.config.get('MODEL_MAJOR_VERSION', 1),
+        train_mode=app.config.get('TRAIN_MODE', False)
+    )
+    app.logger.info(
+        f"Predictor initialized "
+        f"(model v{app.predictor.model_version})"
+    )
 
-cli.add_command(load_from_json)
-cli.add_command(load_from_csv)
 
-
-if __name__ == '__main__':
-    cli()
+def register_blueprints(app: Flask) -> None:
+    """Register all application blueprints."""
+    from . import routes
+    app.register_blueprint(routes.bp)

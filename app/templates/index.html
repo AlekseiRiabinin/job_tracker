@@ -3,12 +3,18 @@
 {% block content %}
 <div class="header-with-actions">
     <h1>My Job Applications (Germany)</h1>
-    <div class="analytics-buttons">
+    <div class="action-buttons">
         <a href="{{ url_for('main.analytics_summary') }}" class="button analytics-button">
             📊 View Summary
         </a>
         <a href="{{ url_for('main.analytics_timeseries') }}" class="button analytics-button">
             📈 View Timeline
+        </a>
+        <a href="{{ url_for('main.ml_predict') }}" class="button analytics-button">
+            🔮 Predict Success
+        </a>
+        <a href="{{ url_for('main.ml_retrain') }}" class="button analytics-button">
+            🏋️ Retrain Model
         </a>
     </div>
 </div>
@@ -67,13 +73,14 @@
     flex-wrap: wrap;
     gap: 15px;
   }
-  
-  .analytics-buttons {
+
+  .action-buttons {
     display: flex;
     gap: 10px;
+    flex-wrap: wrap;
   }
   
-  .analytics-button {
+  .button {
     background-color: #4a6fa5;
     color: white;
     padding: 8px 12px;
@@ -81,12 +88,13 @@
     text-decoration: none;
     font-size: 0.9rem;
     transition: background-color 0.2s;
+    display: inline-block;
   }
   
-  .analytics-button:hover {
+  .button:hover {
     background-color: #3a5a8c;
   }
-  
+
   .tooltip-container {
     position: relative;
     display: inline-block;
@@ -142,7 +150,7 @@
       align-items: flex-start;
     }
     
-    .analytics-buttons {
+    .action-buttons {
       width: 100%;
       justify-content: flex-start;
     }

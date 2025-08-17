@@ -1,4 +1,5 @@
 import os
+import re
 import joblib
 import traceback
 import pandas as pd
@@ -24,28 +25,58 @@ class JobPredictor:
         self: Self,
         model_path: str = None, 
         train_mode: bool = False, 
-        db_config: Optional[dict] = None
+        db_config: Optional[dict] = None,
+        major_version: int = 1
     ) -> None:
-        """Initialize prediction service."""
-        self.model_version = "1.0"
+        """Initialize prediction service with model path checking."""
+        self.major_version = major_version
+        self.model_version = f"{major_version}.0"
         self.feature_processor = create_enhanced_features
-        self._model_dir = os.path.abspath('models')
+        self._model_dir = (
+            os.path.abspath(model_path) 
+            if model_path else os.path.abspath('models')
+        )
 
+        os.makedirs(self._model_dir, exist_ok=True)
+        self.pipeline = None
+        available_models = self._get_available_models()
+
+        if available_models and not train_mode:
+            model_path = model_path or self._get_latest_model()
+            try:
+                self.pipeline = self._load_model(model_path)
+                version_match = re.search(
+                    r'_v([\d.]+)_', os.path.basename(model_path)
+                )
+                if version_match:
+                    self.model_version = version_match.group(1)
+                else:
+                    self.logger.warning(
+                        f"Could not extract version from "
+                        f"{model_path}, keeping default"
+                    )
+            except Exception as e:
+                self.logger.error(f"Failed to load model: {str(e)}")
+                self.pipeline = None
+        
         if train_mode:
             if not db_config:
                 raise ValueError("db_config required when train_mode=True")
-            self.train_from_mongodb(**db_config)
-        else:
-            model_path = model_path or self._get_latest_model()
-            self.pipeline = self._load_model(model_path)
-
-            if 'v' in os.path.basename(model_path):
-                self.model_version = (
-                    os.path
-                        .basename(model_path)
-                        .split('_v')[1]
-                        .split('_')[0]
+            
+            try:
+                if available_models:
+                    self.model_version = self._increment_version()
+                metrics = self.train_from_mongodb(**db_config)
+                self.model_version = metrics.get(
+                    'model_version', self.model_version
                 )
+            except Exception as e:
+                self.logger.error(f"Initial training failed: {str(e)}")
+                raise
+
+    def is_ready(self: Self):
+        """Check if predictor is ready for predictions."""
+        return hasattr(self, 'pipeline') and self.pipeline is not None
 
     def train_from_mongodb(
         self: Self,
@@ -81,8 +112,7 @@ class JobPredictor:
                 stratify=pd.cut(y, bins=[0, 0.3, 0.7, 1.0])
             )
             
-            self.model_version = self._increment_version()
-            self.pipeline = create_pipeline()
+            self.pipeline = self.create_pipeline()
             self.pipeline.fit(X_train, y_train)
             
             model_path = self._save_model()
@@ -121,6 +151,123 @@ class JobPredictor:
             if hasattr(self, 'pipeline'):
                 del self.pipeline
             raise RuntimeError(f"Training aborted: {str(e)}") from e
+
+    def predict(
+        self: Self,
+        job_data: dict,
+        german_level: str = None
+    ) -> float:
+        """Predict job application success probability."""
+        REQUIRED_KEYS = {'vacancy_description', 'role', 'source'}
+        PROFICIENCY_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
+
+        if not all(key in job_data for key in REQUIRED_KEYS):
+            missing = REQUIRED_KEYS - set(job_data.keys())
+            raise ValueError(f"Missing required keys: {missing}")
+
+        try:
+            features = self.feature_processor(pd.DataFrame([job_data]))
+            
+            if features.iloc[0]['german_required']:
+                if not german_level:
+                    return 0.0
+                
+                try:
+                    required_idx = PROFICIENCY_ORDER.index(
+                        features.iloc[0]['german_level']
+                    )
+                    user_idx = PROFICIENCY_ORDER.index(german_level)
+                    if required_idx > user_idx:
+                        return 0.0
+                except ValueError:
+                    return 0.0
+
+            proba = float(self.pipeline.predict_proba(features)[0][1])
+            return max(0.0, min(1.0, proba))
+
+        except Exception as e:
+            raise RuntimeError(f"Prediction failed: {str(e)}") from e
+
+    def create_pipeline():
+        """Factory for creating new model pipelines."""
+        preprocessor = make_column_transformer(
+            (TechStackTransformer(), ['tech_stack']),
+            (OneHotEncoder(handle_unknown='ignore'), ['industry']),
+            (OneHotEncoder(handle_unknown='ignore'), ['source']),
+            (OneHotEncoder(handle_unknown='ignore'), ['german_level']),
+            ('passthrough', ['relative_seniority']),
+            (LanguageAwareTfidf(max_features=50), ['processed_text', 'description_lang']),
+            remainder='drop'
+        )
+
+        return make_pipeline(
+            preprocessor,
+            GradientBoostingClassifier(
+                n_estimators=150,
+                learning_rate=0.05,
+                max_depth=4,
+                class_weight='balanced'
+            )
+        )
+
+    def get_model_info(self: Self) -> dict:
+        """Get model metadata with pipeline configuration."""
+        if not hasattr(self, 'pipeline') or not self.pipeline:
+            raise RuntimeError("Model pipeline not initialized")
+
+        info = {
+            "version": getattr(self, 'model_version', 'unversioned'),
+            "last_retrained": self._get_model_timestamp(),
+            "model_type": self.pipeline[-1].__class__.__name__,
+            "feature_count": 0,
+            "pipeline_steps": []
+        }
+
+        try:
+            ct = self.pipeline.named_steps.get('columntransformer')
+            if ct:
+                info['features'] = list(ct.get_feature_names_out())
+                info['feature_count'] = len(info['features'])
+                
+                info['pipeline_steps'] = [
+                    {
+                        'transformer': str(transformer.__class__.__name__),
+                        'columns': columns,
+                        'params': transformer.get_params()
+                    }
+                    for transformer, columns, _ in ct.transformers_
+                ]
+
+            gb = self.pipeline.named_steps.get('gradientboostingclassifier')
+            if gb:
+                info['classifier_params'] = {
+                    'n_estimators': gb.n_estimators,
+                    'learning_rate': gb.learning_rate,
+                    'max_depth': gb.max_depth,
+                    'class_weight': str(gb.class_weight)
+                }
+
+        except Exception as e:
+            current_app.logger.error(f"Failed to extract pipeline info: {str(e)}")
+            info['error'] = f"Metadata incomplete: {str(e)}"
+
+        if hasattr(self, 'training_metrics'):
+            info.update({
+                k: v for k, v in self.training_metrics.items()
+                if not k.startswith('_')
+            })
+
+        return info
+
+    def _get_available_models(self: Self):
+        """Check if any model files exist in the directory."""
+        try:
+            return any(
+                f.endswith('.pkl') 
+                for f in os.listdir(self._model_dir)
+            )
+        except FileNotFoundError:
+            return False
 
     def _get_class_distribution(
         self: Self,
@@ -190,10 +337,32 @@ class JobPredictor:
                 return os.path.join(self._model_dir, f.read().strip())
         return os.path.join(self._model_dir, 'enhanced_model.pkl')
 
-    def _increment_version(self: Self) -> str:
+    def _increment_version(
+            self: Self,
+            breaking_change: bool = False
+    ) -> str:
         """Generate next semantic version."""
-        major, minor = map(int, self.model_version.split('.'))
-        return f"{major}.{minor + 1}"
+        try:
+            current_major = getattr(self, 'major_version', None)
+            
+            if current_major is not None and breaking_change:
+                self.major_version += 1
+                return f"{self.major_version}.0"
+            
+            major, minor = map(int, self.model_version.split('.'))
+            
+            if breaking_change:
+                return f"{major + 1}.0"
+            else:
+                return f"{major}.{minor + 1}"
+                
+        except (ValueError, AttributeError, IndexError) as e:
+            error_msg = (
+                f"Version increment failed ({str(e)}). "
+                f"Defaulting to 1.0"
+            )
+            self.logger.warning(error_msg)
+            return "1.0"
 
     def _save_model(self: Self) -> str:
         """Save pipeline with versioned filename."""
@@ -212,91 +381,6 @@ class JobPredictor:
         return model_path
 
 
-    def predict(
-        self: Self,
-        job_data: dict,
-        german_level: str = None
-    ) -> float:
-        """Predict job application success probability."""
-        REQUIRED_KEYS = {'vacancy_description', 'role', 'source'}
-        PROFICIENCY_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
-
-        if not all(key in job_data for key in REQUIRED_KEYS):
-            missing = REQUIRED_KEYS - set(job_data.keys())
-            raise ValueError(f"Missing required keys: {missing}")
-
-        try:
-            features = self.feature_processor(pd.DataFrame([job_data]))
-            
-            if features.iloc[0]['german_required']:
-                if not german_level:
-                    return 0.0
-                
-                try:
-                    required_idx = PROFICIENCY_ORDER.index(
-                        features.iloc[0]['german_level']
-                    )
-                    user_idx = PROFICIENCY_ORDER.index(german_level)
-                    if required_idx > user_idx:
-                        return 0.0
-                except ValueError:
-                    return 0.0
-
-            proba = float(self.pipeline.predict_proba(features)[0][1])
-            return max(0.0, min(1.0, proba))
-
-        except Exception as e:
-            raise RuntimeError(f"Prediction failed: {str(e)}") from e
-
-    def get_model_info(self: Self) -> dict:
-        """Get model metadata with pipeline configuration."""
-        if not hasattr(self, 'pipeline') or not self.pipeline:
-            raise RuntimeError("Model pipeline not initialized")
-
-        info = {
-            "version": getattr(self, 'model_version', 'unversioned'),
-            "last_retrained": self._get_model_timestamp(),
-            "model_type": self.pipeline[-1].__class__.__name__,
-            "feature_count": 0,
-            "pipeline_steps": []
-        }
-
-        try:
-            ct = self.pipeline.named_steps.get('columntransformer')
-            if ct:
-                info['features'] = list(ct.get_feature_names_out())
-                info['feature_count'] = len(info['features'])
-                
-                info['pipeline_steps'] = [
-                    {
-                        'transformer': str(transformer.__class__.__name__),
-                        'columns': columns,
-                        'params': transformer.get_params()
-                    }
-                    for transformer, columns, _ in ct.transformers_
-                ]
-
-            gb = self.pipeline.named_steps.get('gradientboostingclassifier')
-            if gb:
-                info['classifier_params'] = {
-                    'n_estimators': gb.n_estimators,
-                    'learning_rate': gb.learning_rate,
-                    'max_depth': gb.max_depth,
-                    'class_weight': str(gb.class_weight)
-                }
-
-        except Exception as e:
-            current_app.logger.error(f"Failed to extract pipeline info: {str(e)}")
-            info['error'] = f"Metadata incomplete: {str(e)}"
-
-        if hasattr(self, 'training_metrics'):
-            info.update({
-                k: v for k, v in self.training_metrics.items()
-                if not k.startswith('_')
-            })
-
-        return info
-
     def _get_model_timestamp(self: Self) -> str:
         """Get last retrained timestamp safely."""
         model_path = os.path.join('models', 'enhanced_model.pkl')
@@ -308,26 +392,3 @@ class JobPredictor:
         except OSError:
             pass
         return "unknown"
-
-
-def create_pipeline():
-    """Factory for creating new model pipelines."""
-    preprocessor = make_column_transformer(
-        (TechStackTransformer(), ['tech_stack']),
-        (OneHotEncoder(handle_unknown='ignore'), ['industry']),
-        (OneHotEncoder(handle_unknown='ignore'), ['source']),
-        (OneHotEncoder(handle_unknown='ignore'), ['german_level']),
-        ('passthrough', ['relative_seniority']),
-        (LanguageAwareTfidf(max_features=50), ['processed_text', 'description_lang']),
-        remainder='drop'
-    )
-
-    return make_pipeline(
-        preprocessor,
-        GradientBoostingClassifier(
-            n_estimators=150,
-            learning_rate=0.05,
-            max_depth=4,
-            class_weight='balanced'
-        )
-    )

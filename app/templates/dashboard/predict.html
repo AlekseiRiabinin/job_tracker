@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-container">
+    <h1>Predict Application Success</h1>
+    
+    <div class="back-button">
+        <a href="{{ url_for('main.index') }}" class="button">← Back to Applications</a>
+    </div>
+
+    <!-- Model Status Alert -->
+    {% if not model_ready %}
+    <div class="alert alert-warning">
+        ⚠️ The prediction model is not ready yet. 
+        <a href="{{ url_for('main.ml_retrain') }}" class="alert-link">Train the model first</a>
+    </div>
+    {% endif %}
+
+    <!-- Error Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">
+                {{ message }}
+                {% if category == 'warning' %}
+                <a href="{{ url_for('main.ml_retrain') }}" class="alert-link">Retrain now</a>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <div class="ml-form">
+        <form method="POST" action="{{ url_for('main.ml_predict') }}">  <!-- Fixed action URL -->
+            <div class="form-group">
+                <label for="description">Job Description:</label>
+                <textarea name="description" required rows="6" 
+                    placeholder="Paste the full job description here..."
+                    {% if not model_ready %}disabled{% endif %}></textarea>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="role">Job Role:</label>
+                    <input type="text" name="role" required 
+                        placeholder="e.g. Software Engineer, Data Engineer"
+                        {% if not model_ready %}disabled{% endif %}>
+                </div>
+                
+                <div class="form-group">
+                    <label for="source">Job Source:</label>
+                    <select name="source" required {% if not model_ready %}disabled{% endif %}>
+                        <option value="">Select source</option>
+                        <option value="LinkedIn">LinkedIn</option>
+                        <option value="Indeed">Indeed</option>
+                        <option value="Company Website">Company Website</option>
+                        <option value="Recruiter">Recruiter</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="german_level">Your German Level (if required):</label>
+                <select name="german_level" {% if not model_ready %}disabled{% endif %}>
+                    <option value="">Not Required</option>
+                    <option value="A1">A1 (Beginner)</option>
+                    <option value="A2">A2 (Elementary)</option>
+                    <option value="B1">B1 (Intermediate)</option>
+                    <option value="B2">B2 (Upper Intermediate)</option>
+                    <option value="C1">C1 (Advanced)</option>
+                    <option value="C2">C2 (Proficient)</option>
+                </select>
+            </div>
+            
+            <button type="submit" class="button predict-button" 
+                {% if not model_ready %}disabled{% endif %}>
+                {% if model_ready %}
+                    Predict Success Probability
+                {% else %}
+                    Model Not Ready - Train First
+                {% endif %}
+            </button>
+        </form>
+    </div>
+    
+    {% if prediction %}
+    <div class="prediction-result">
+        <h3>Prediction Result</h3>
+        <div class="probability-gauge">
+            <div class="gauge-fill" style="--gauge-width: {{ (prediction.probability * 100)|clamp(0, 100) }}%"></div>
+            <span class="probability-value">
+                {{ (prediction.probability * 100)|round(1) }}%
+            </span>
+        </div>
+        <p class="model-version">Model Version: {{ prediction.model_version }}</p>
+        <div class="interpretation">
+            {% if prediction.probability >= 0.7 %}
+            <p class="text-success">High chance of success</p>
+            {% elif prediction.probability >= 0.4 %}
+            <p class="text-warning">Moderate chance of success</p>
+            {% else %}
+            <p class="text-danger">Low chance of success</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+  /* Existing styles... */
+  
+  .alert {
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 4px;
+  }
+  
+  .alert-warning {
+    background-color: #fff3cd;
+    border: 1px solid #ffeeba;
+    color: #856404;
+  }
+  
+  .alert-danger {
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+  }
+  
+  .alert-success {
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+  }
+  
+  .alert-link {
+    color: inherit;
+    font-weight: bold;
+    text-decoration: underline;
+  }
+  
+  .text-success { color: #28a745; }
+  .text-warning { color: #ffc107; }
+  .text-danger { color: #dc3545; }
+  
+  button[disabled] {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+</style>
+{% endblock %}

@@ -10,7 +10,7 @@ services:
     env_file:
       - .env
     environment:
-      - FLASK_ENV=production
+      - FLASK_ENV=${FLASK_ENV:-production}
       - PYTHONUNBUFFERED=1
     depends_on:
       mongo:
@@ -29,10 +29,12 @@ services:
     volumes:
       - mongodb_data:/data/db
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      test: |
+        echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test \
+          --quiet
       interval: 10s
       timeout: 5s
       retries: 5
