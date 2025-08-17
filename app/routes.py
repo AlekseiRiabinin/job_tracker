@@ -29,26 +29,33 @@ def is_api_request() -> bool:
 
 @bp.route('/', methods=['GET'])
 def index() -> FlaskResponse:
-    """Display all applications (HTML or JSON)."""
+    """Display all applications with proper error handling."""
     try:
+        # Explicit database check
+        if not hasattr(current_app, 'db') or current_app.db is None:
+            raise RuntimeError("Database not initialized")
+        
         jobs = JobApplication.get_all()
         
         if is_api_request():
-            serialized_jobs = []
-            for job in jobs:
-                job_data = job.model_dump()
-                job_data['id'] = str(job_data['id'])
-                serialized_jobs.append(job_data)
-            return jsonify(serialized_jobs)
+            return jsonify([
+                {**job.model_dump(), "id": str(job.id)} 
+                for job in jobs
+            ])
             
         return render_template('index.html', jobs=jobs)
         
     except Exception as e:
+        current_app.logger.error(
+            f"Index route failed: {str(e)}\n{traceback.format_exc()}"
+        )
         if is_api_request():
             return jsonify({
-                "error": "Failed to fetch jobs",
+                "status": "error",
+                "error": "Failed to load applications",
                 "details": str(e)
             }), 500
+        flash("Failed to load applications", "danger")
         abort(500)
 
 

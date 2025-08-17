@@ -1,6 +1,9 @@
 from flask import current_app
 from datetime import datetime
-from typing import Optional, Self, ClassVar, Any
+from typing import (
+    Optional, Self, ClassVar, TypedDict,
+    Any, Literal, NotRequired, get_args
+)
 from pydantic import (
     BaseModel, ConfigDict, Field,
     field_validator, model_validator
@@ -14,11 +17,44 @@ from pymongo.database import Database
 from bson import ObjectId
 
 
+type StatusType = Literal[
+    "Applied",
+    "Interview/Phone",
+    "Interview/Technical",
+    "Interview/Onsite",
+    "Offer",
+    "Rejected",
+    "Ghosted"
+]
+
+
+class RequirementsType(TypedDict):
+    """Requirements subdocument structure."""
+    german_level: NotRequired[str]
+
+
+class ApplicationType(TypedDict):
+    """Fields accessed by metrics calculation."""
+    status: StatusType
+    applied_date: datetime
+    response_date: NotRequired[datetime]
+    requirements: NotRequired[RequirementsType]
+
+
+class SuccessMetrics(TypedDict):
+    """Fields used for ML model."""
+    success_probability: float
+    german_level: NotRequired[str]
+    last_prediction_date: datetime
+    _calculated: dict[str, float]
+
+
 class JobApplicationBase(BaseModel):
     """Base schema for job application data validation."""
+
     VALID_STATUSES: ClassVar[set[str]] = {
         "Applied",
-        "Interview/Phone",
+        "Interview/Phone", 
         "Interview/Technical",
         "Interview/Onsite",
         "Offer",
@@ -137,12 +173,14 @@ class JobApplication:
     """Handles CRUD operations for job applications in MongoDB."""
 
     @classmethod
-    def calculate_success_metrics(cls: Self, application: dict) -> dict:
+    def calculate_success_metrics(
+        cls: Self,
+        application: ApplicationType
+    ) -> SuccessMetrics:
         """Calculate success metrics based on application progress."""
         status = application['status']
         current_date = datetime.now()
         
-        # Base success probability based on status hierarchy
         status_weights = {
             "Applied": 0.1,
             "Interview/Phone": 0.3,
@@ -153,26 +191,30 @@ class JobApplication:
             "Ghosted": 0.05
         }
 
-        # Time decay factor (recent applications get more weight)
         days_since_applied = (current_date - application['applied_date']).days
-        time_factor = max(0, 1 - (days_since_applied / 90))  # 3-month half-life
+        time_factor = max(0, 1 - (days_since_applied / 90))
 
-        # Response time bonus (faster responses = better odds)
         response_bonus = 0
         if application.get('response_date'):
             response_days = (
                 application['response_date'] - application['applied_date']
             ).days
-            response_bonus = 0.2 * (1 - min(response_days, 14) / 14)  # Up to 20% bonus
+            response_bonus = 0.2 * (1 - min(response_days, 14) / 14)
 
-        # Calculate composite probability
         base_prob = status_weights.get(status, 0)
         composite_prob = min(1, base_prob * (1 + time_factor) / 2 + response_bonus)
 
         return {
             "success_probability": round(composite_prob, 2),
-            "confidence_factor": time_factor,
-            "last_calculated": current_date
+            "german_level": (
+                application.get('requirements', {}).get('german_level')
+            ),
+            "last_prediction_date": current_date,
+            "_calculated": {
+                "confidence_factor": time_factor,
+                "status_weight": base_prob,
+                "response_bonus": response_bonus
+            }
         }
 
     @staticmethod
@@ -203,16 +245,17 @@ class JobApplication:
         if not app_data.get('applied_date'):
             app_data['applied_date'] = datetime.now()
 
-        # Initialize ml_meta if not present
-        app_data.setdefault('ml_meta', {})
+        # Initialize ml subdocument
+        app_data['ml'] = {}
 
         if 'status' in app_data:
             metrics = JobApplication.calculate_success_metrics({
                 'status': app_data['status'],
                 'applied_date': app_data['applied_date'],
-                'response_date': app_data.get('response_date')
+                'response_date': app_data.get('response_date'),
+                'requirements': app_data.get('requirements', {})
             })
-            app_data['ml_meta'].update(metrics)
+            app_data['ml'].update(metrics)
 
         return JobApplication.get_db().applications.insert_one(app_data)
 

@@ -1,7 +1,19 @@
 import json
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta
 from faker import Faker
+from typing import Literal, get_args
+
+
+type StatusType = Literal[
+    "Applied",
+    "Interview/Phone",
+    "Interview/Technical",
+    "Interview/Onsite",
+    "Offer",
+    "Rejected",
+    "Ghosted"
+]
 
 
 def generate_job_application_data(num_records: int = 1000) -> list[dict]:
@@ -36,10 +48,9 @@ def generate_job_application_data(num_records: int = 1000) -> list[dict]:
     
     roles = ["Data Engineer", "Software Developer"]
     
-    statuses = [
-        "Applied", "Interview/Phone", "Interview/Technical",
-        "Interview/Onsite", "Offer", "Rejected", "Ghosted"
-    ]
+    statuses = list(get_args(StatusType))
+    
+    german_levels = ["A1", "A2", "B1", "B2", "C1", "C2", None]
     
     applications = []
     
@@ -54,14 +65,11 @@ def generate_job_application_data(num_records: int = 1000) -> list[dict]:
         if status not in ["Applied", "Ghosted"]:
             response_date = applied_date + timedelta(days=random.randint(1, 60))
         
-        notes_options = [
-            None,
-            f"Recruiter: {fake.name()}",
-            f"Tech stack: {random.choice(['Python', 'Spark', 'SQL', 'Hadoop', 'S3'])}",
-            f"Reference: {fake.name()}",
-            "Requires relocation",
-            "Remote position available"
-        ]
+        ml_meta = {
+            "success_probability": round(random.uniform(0, 1), 2),
+            "german_level": random.choice(german_levels),
+            "last_prediction_date": datetime.now().isoformat()
+        }
         
         application = {
             "company": company,
@@ -71,27 +79,49 @@ def generate_job_application_data(num_records: int = 1000) -> list[dict]:
             "source": random.choice(sources),
             "applied_date": applied_date.isoformat(),
             "response_date": response_date.isoformat() if response_date else None,
-            "notes": random.choice(notes_options),
+            "notes": random.choice([
+                None,
+                f"Recruiter: {fake.name()}",
+                f"Tech: {random.choice(['Python', 'Spark', 'SQL'])}",
+                f"Ref: {fake.name()}"
+            ]),
             "vacancy_description": (
-                f"Looking for {random.choice(['senior', 'mid-level', 'junior'])} "
-                f"{random.choice(roles)} with experience in "
-                f"{random.choice(['cloud', 'microservices', 'AI', 'big data'])}. "
+                f"Seeking {random.choice(['senior', 'mid', 'junior'])} "
+                f"{random.choice(roles)} with "
+                f"{random.choice(['3+', '5+', '7+'])} years experience. "
                 f"{fake.text(max_nb_chars=500)}"
-            )
+            ),
+            "ml": ml_meta,
+            "requirements": {
+                "german_level": ml_meta["german_level"],
+                "tech_stack": random.sample(
+                    ["Python", "PodtgreSQL", "SQL", "Spark", "Kafka", "MongoDB"],
+                    k=random.randint(2, 4)
+                )
+            }
         }
-        
+
         applications.append(application)
     
     return applications
 
-
-def save_to_json(data: list[dict], filename: str = "job_applications.json") -> None:
+def save_to_json(
+        data: list[dict],
+        filename: str = "job_applications.json"
+) -> None:
     """Save generated data to JSON file."""
+    def json_serializer(obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        raise TypeError(f"Type {type(obj)} not serializable")
+    
     with open(filename, "w") as f:
-        json.dump(data, f, indent=2)
-
+        json.dump(data, f, indent=2, default=json_serializer)
 
 if __name__ == "__main__":
     sample_data = generate_job_application_data(1000)
     save_to_json(sample_data)
-    print("Generated 1000 job application records in job_applications.json")
+    print(
+        f"Generated {len(sample_data)} "
+        f"application records in job_applications.json"
+    )
