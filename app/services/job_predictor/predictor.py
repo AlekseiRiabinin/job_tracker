@@ -4,7 +4,7 @@ import joblib
 import traceback
 import pandas as pd
 from flask import current_app
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Self, Optional
 from sklearn.pipeline import Pipeline ,make_pipeline
 from sklearn.compose import make_column_transformer
@@ -171,7 +171,7 @@ class JobPredictor:
             if features.iloc[0]['german_required']:
                 if not german_level:
                     return 0.0
-                
+
                 try:
                     required_idx = PROFICIENCY_ORDER.index(
                         features.iloc[0]['german_level']
@@ -187,6 +187,106 @@ class JobPredictor:
 
         except Exception as e:
             raise RuntimeError(f"Prediction failed: {str(e)}") from e
+
+    def predict_batch(
+        self: Self,
+        query_filter: Optional[dict] = None,
+        batch_size: int = 100,
+        update_threshold: float = 0.01,
+        max_documents: Optional[int] = None
+    ) -> dict:
+        """Batch predict success probabilities and update MongoDB."""
+        if not current_app or not hasattr(current_app, 'db'):
+            raise RuntimeError(
+                "Flask application context with DB not available"
+            )
+
+        db = current_app.db
+        stats = {
+            'processed': 0,
+            'updated': 0,
+            'skipped': 0,
+            'errors': 0,
+            'error_details': []
+        }
+
+        base_query = {
+            "vacancy_description": {"$exists": True, "$ne": ""},
+            "role": {"$exists": True},
+            "source": {"$exists": True}
+        }
+
+        # Merge with user-provided filter
+        final_query = {**base_query, **(query_filter or {})}
+
+        try:
+            cursor = db.applications.find(final_query)
+            if max_documents:
+                cursor.limit(max_documents)
+
+            for batch in cursor.batch_size(batch_size):
+                stats['processed'] += 1
+                doc_id = batch['_id']
+
+                try:
+                    job_data = {
+                        'vacancy_description': batch.get('vacancy_description'),
+                        'role': batch.get('role'),
+                        'source': batch.get('source'),
+                        'tech_stack': batch.get('tech_stack', []),
+                        'industry': batch.get('industry'),
+                        # Include any other fields needed by the feature processor
+                    }
+
+                    current_pred = batch.get('ml', {}).get('success_probability')
+                    current_german = batch.get('ml', {}).get('german_level')
+
+                    german_level = batch.get('requirements', {}).get('german_level')
+                    proba = self.predict(job_data, german_level=german_level)
+
+                    needs_update = (
+                        current_pred is None or
+                        abs(proba - current_pred) > update_threshold or
+                        current_german != german_level
+                    )
+
+                    if needs_update:
+                        update_data = {
+                            "ml.success_probability": proba,
+                            "ml.german_level": german_level,
+                            "ml.last_prediction_date": datetime.now()
+                        }
+
+                        db.applications.update_one(
+                            {"_id": doc_id},
+                            {"$set": update_data}
+                        )
+                        stats['updated'] += 1
+                    else:
+                        stats['skipped'] += 1
+
+                except Exception as e:
+                    stats['errors'] += 1
+                    stats['error_details'].append({
+                        "document_id": str(doc_id),
+                        "error": str(e),
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    current_app.logger.error(
+                        f"Batch prediction failed for document "
+                        f"{doc_id}: {str(e)}"
+                    )
+                    continue
+
+            return stats
+
+        except Exception as e:
+            current_app.logger.error(
+                f"Batch prediction failed completely: {str(e)}"
+            )
+            raise RuntimeError(
+                f"Batch prediction failed: {str(e)}"
+            ) from e
 
     def create_pipeline():
         """Factory for creating new model pipelines."""

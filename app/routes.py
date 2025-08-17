@@ -95,7 +95,9 @@ def add_job() -> FlaskResponse:
 def edit_job(job_id: str) -> FlaskResponse:
     """Handle editing job applications."""
     try:
-        job = JobApplication.get_db().applications.find_one({"_id": ObjectId(job_id)})
+        job = JobApplication.get_db().applications.find_one(
+            {"_id": ObjectId(job_id)}
+        )
         if not job:
             if is_api_request():
                 return jsonify({"error": "Job not found"}), 404
@@ -241,7 +243,7 @@ def analytics_timeseries() -> str | dict:
         abort(500)
 
 
-@bp.route('/ml/predict', methods=['GET', 'POST'])
+@bp.route('/ml/predict/one', methods=['GET', 'POST'])
 def ml_predict() -> FlaskResponse:
     """Handle prediction requests."""
 
@@ -396,6 +398,150 @@ def ml_predict() -> FlaskResponse:
             }), 500
         flash(error_msg, 'danger')
         return redirect(url_for('main.ml_predict'))
+
+
+@bp.route('/ml/predict/batch', methods=['POST'])
+def ml_batch_predict() -> FlaskResponse:
+    """Handle batch prediction requests."""
+    
+    # Service availability check
+    if (
+        not hasattr(current_app, 'predictor') 
+        or current_app.predictor is None
+    ):
+        error_msg = "Prediction service is not available"
+        if is_api_request():
+            return jsonify(
+                {'status': 'error', 'error': error_msg}
+            ), 503
+        flash(error_msg, 'danger')
+        return redirect(url_for('main.index'))
+
+    # Model readiness check
+    model_ready = (
+        hasattr(current_app.predictor, 'pipeline') and 
+        current_app.predictor.pipeline is not None
+    )
+    model_version = getattr(
+        current_app.predictor, 'model_version', '0.0'
+    )
+
+    if not model_ready:
+        error_msg = (
+            f"Model not trained yet. "
+            f"Please retrain the model first."
+        )
+        if is_api_request():
+            return jsonify({
+                'status': 'error',
+                'error': error_msg,
+                'solution': 'Retrain the model first',
+                'retrain_endpoint': url_for('main.ml_retrain')
+            }), 503
+        flash(error_msg, 'warning')
+        return redirect(url_for('main.ml_retrain'))
+
+    # Process Request
+    try:
+        request_data = (
+            request.get_json() 
+            if is_api_request() 
+            else request.form
+        )
+        
+        # Validate input format
+        if not request_data:
+            error_msg = "No input data provided"
+            if is_api_request():
+                return jsonify({
+                    'status': 'error',
+                    'error': error_msg,
+                    'required_format': {
+                        'filter': {
+                            'optional': 'MongoDB query filter'
+                        },
+                        'batch_size': {
+                            'optional': 'Number of documents per batch'
+                        },
+                        'update_threshold': {
+                            'optional': 'Min probability change for update'
+                        }
+                    }
+                }), 400
+            flash(error_msg, 'warning')
+            return redirect(url_for('main.ml_batch_predict'))
+
+        # Process batch prediction
+        results = current_app.predictor.predict_batch(
+            query_filter=request_data.get('filter'),
+            batch_size=int(request_data.get('batch_size', 100)),
+            update_threshold=float(request_data.get('update_threshold', 0.01)),
+            max_documents=int(request_data.get('max_documents', 0)) or None
+        )
+
+        # Prepare response
+        response_data = {
+            'status': 'success',
+            'model_version': model_version,
+            'stats': {
+                'processed': results['processed'],
+                'updated': results['updated'],
+                'skipped': results['skipped'],
+                'errors': results['errors']
+            },
+            'timestamp': datetime.now().isoformat()
+        }
+
+        if results['errors'] > 0:
+            response_data['warning'] = (
+                f"{results['errors']} predictions failed"
+            )
+            if is_api_request():
+                response_data['error_samples'] = (
+                    results['error_details'][:5]
+                )
+
+        if is_api_request():
+            return jsonify(response_data)
+
+        flash(
+            f"Batch prediction complete: {results['processed']} processed, "
+            f"{results['updated']} updated", 
+            'success'
+        )
+        return render_template(
+            'dashboard/batch_predict.html',
+            results=response_data,
+            model_ready=True
+        )
+
+    except ValueError as e:
+        error_msg = f"Input validation error: {str(e)}"
+        if is_api_request():
+            return jsonify({
+                'status': 'error',
+                'error': error_msg,
+                'type': 'validation_error'
+            }), 400
+        flash(error_msg, 'warning')
+        return redirect(url_for('main.ml_batch_predict'))
+        
+    except Exception as e:
+        current_app.logger.error(
+            f"Batch prediction failed: "
+            f"{str(e)}\n{traceback.format_exc()}"
+        )
+        error_msg = "Batch prediction service encountered an error"
+        if is_api_request():
+            return jsonify({
+                'status': 'error',
+                'error': error_msg,
+                'error_details': str(e),
+                'support_contact': 'aleksei.riabinin@yahoo.com'
+            }), 500
+        flash(error_msg, 'danger')
+        return redirect(url_for('main.ml_batch_predict'))
+
 
 @bp.route('/ml/retrain', methods=['GET', 'POST'])
 def ml_retrain() -> FlaskResponse:
