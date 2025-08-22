@@ -9,81 +9,143 @@
 </div>
 
 <div class="controls">
-    <form id="dateFilter" method="GET">
-        <div class="form-group">
-            <label for="start">From:</label>
-            <input type="date" id="start" name="start" 
-                   value="{{ request.args.get('start', '') }}" required>
+    <form id="dateFilter" method="GET" class="filter-form">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="start">From:</label>
+                <input type="date" id="start" name="start" 
+                       value="{{ request.args.get('start', '') }}" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="end">To:</label>
+                <input type="date" id="end" name="end"
+                       value="{{ request.args.get('end', '') }}" required>
+            </div>
+            
+            <div class="form-group checkbox-group">
+                <label for="details">
+                    <input type="checkbox" id="details" name="details" 
+                           {% if show_details %}checked{% endif %}>
+                    Show Application Details
+                </label>
+            </div>
+            
+            <div class="form-group button-group">
+                <button type="submit" class="submit-button">Apply Filters</button>
+                <a href="{{ url_for('main.analytics_timeseries') }}" class="button reset-button">
+                    Reset
+                </a>
+            </div>
         </div>
-        
-        <div class="form-group">
-            <label for="end">To:</label>
-            <input type="date" id="end" name="end"
-                   value="{{ request.args.get('end', '') }}">
-        </div>
-        
-        <div class="form-group">
-            <label>
-                <input type="checkbox" name="details" 
-                       {% if show_details %}checked{% endif %}>
-                Show Application Details
-            </label>
-        </div>
-        
-        <button type="submit">Apply Filters</button>
-        <a href="{{ url_for('main.analytics_timeseries') }}" class="button">
-            Reset
-        </a>
     </form>
 </div>
 
-<!-- Rest of your existing content remains unchanged -->
 <div class="chart-container">
     <canvas id="applicationsChart"></canvas>
 </div>
 
-{% if show_details %}
+{% if show_details and chart_data %}
 <div class="details-container">
     <h2>Daily Application Details</h2>
     {% for day in chart_data %}
     <div class="day-group">
         <h3>{{ day.date }} ({{ day.count }} applications)</h3>
         {% if day.applications %}
-        <table>
-            <tr>
-                <th>Company</th>
-                <th>Role</th>
-                <th>Status</th>
-            </tr>
-            {% for app in day.applications %}
-            <tr>
-                <td>{{ app.company }}</td>
-                <td>{{ app.role }}</td>
-                <td>{{ app.status }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+        <div class="table-responsive">
+            <table class="applications-table">
+                <thead>
+                    <tr>
+                        <th>Company</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for app in day.applications %}
+                    <tr>
+                        <td>{{ app.company }}</td>
+                        <td>{{ app.role }}</td>
+                        <td><span class="status-badge status-{{ app.status|lower|replace(' ', '-') }}">{{ app.status }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
         {% else %}
-        <p>No application details available</p>
+        <p class="no-data">No application details available</p>
         {% endif %}
     </div>
     {% endfor %}
 </div>
+{% elif show_details %}
+<div class="no-details-message">
+    <p>No application details available for the selected date range.</p>
+</div>
 {% endif %}
 
-<!-- Chart.js script remains unchanged -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-    // Your existing chart script
+    // Prepare chart data with error handling
+    const chartLabels = JSON.parse('{{ chart_labels|tojson|safe }}') || [];
+    const chartValues = JSON.parse('{{ chart_values|tojson|safe }}') || [];
+    
+    const chartData = {
+        labels: chartLabels,
+        datasets: [{
+            label: 'Daily Applications',
+            data: chartValues,
+            backgroundColor: 'rgba(54, 162, 235, 0.5)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            borderWidth: 1
+        }]
+    };
+
+    // Create chart only if we have data
+    const ctx = document.getElementById('applicationsChart');
+    if (ctx && chartLabels.length > 0 && chartValues.length > 0) {
+        new Chart(ctx.getContext('2d'), {
+            type: 'bar',
+            data: chartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Number of Applications'
+                        },
+                        ticks: {
+                            stepSize: 1
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date'
+                        }
+                    }
+                }
+            }
+        });
+    } else if (ctx) {
+        // Display message if no chart data
+        ctx.innerHTML = '<div class="no-chart-data"><p>No application data available for the selected date range.</p></div>';
+        ctx.style.height = 'auto';
+    }
 </script>
 
 <style>
-    /* New header styles */
+    /* Header styles */
     .page-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+        gap: 1rem;
     }
 
     .back-button {
@@ -95,61 +157,222 @@
         font-size: 0.9rem;
         transition: all 0.2s ease;
         border: 1px solid #ddd;
+        white-space: nowrap;
     }
 
     .back-button:hover {
         background: #e0e0e0;
         border-color: #ccc;
+        transform: translateY(-1px);
     }
 
-    /* Your existing styles remain unchanged */
+    /* Form styles */
     .controls {
-        background: #f5f5f5;
-        padding: 1rem;
-        border-radius: 4px;
+        background: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 8px;
         margin-bottom: 2rem;
+        border: 1px solid #e9ecef;
+    }
+    
+    .filter-form {
+        width: 100%;
+    }
+    
+    .form-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.5rem;
+        align-items: flex-end;
     }
     
     .form-group {
-        margin-bottom: 1rem;
-        display: inline-block;
-        margin-right: 1rem;
+        display: flex;
+        flex-direction: column;
+        min-width: 120px;
     }
     
+    .form-group label {
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+        color: #495057;
+    }
+    
+    .form-group input[type="date"] {
+        padding: 0.5rem;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        font-size: 0.9rem;
+    }
+    
+    .checkbox-group {
+        flex-direction: row;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .checkbox-group label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0;
+        cursor: pointer;
+    }
+    
+    .button-group {
+        flex-direction: row;
+        gap: 0.5rem;
+    }
+    
+    .submit-button {
+        background: #007bff;
+        color: white;
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: background-color 0.2s ease;
+    }
+    
+    .submit-button:hover {
+        background: #0056b3;
+    }
+    
+    .reset-button {
+        background: #6c757d;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        text-decoration: none;
+        font-size: 0.9rem;
+        transition: background-color 0.2s ease;
+    }
+    
+    .reset-button:hover {
+        background: #545b62;
+        color: white;
+    }
+    
+    /* Chart styles */
     .chart-container {
         margin: 2rem 0;
         height: 400px;
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+        border: 1px solid #e9ecef;
     }
     
+    .no-chart-data {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #6c757d;
+    }
+    
+    /* Details styles */
     .details-container {
         margin-top: 3rem;
     }
     
     .day-group {
         margin-bottom: 2rem;
-        padding: 1rem;
-        border: 1px solid #eee;
-        border-radius: 4px;
+        padding: 1.5rem;
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        background: white;
     }
     
-    table {
+    .day-group h3 {
+        margin: 0 0 1rem 0;
+        color: #495057;
+        font-size: 1.1rem;
+    }
+    
+    .table-responsive {
+        overflow-x: auto;
+    }
+    
+    .applications-table {
         width: 100%;
         border-collapse: collapse;
         margin-top: 1rem;
+        font-size: 0.9rem;
     }
     
-    th, td {
-        padding: 8px;
+    .applications-table th {
+        background: #f8f9fa;
+        padding: 0.75rem;
         text-align: left;
-        border-bottom: 1px solid #ddd;
+        font-weight: 600;
+        border-bottom: 2px solid #dee2e6;
     }
     
-    .button {
-        margin-left: 10px;
-        padding: 8px 12px;
-        background: #f0f0f0;
-        border-radius: 4px;
-        text-decoration: none;
+    .applications-table td {
+        padding: 0.75rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+    
+    .applications-table tr:hover {
+        background: #f8f9fa;
+    }
+    
+    .status-badge {
+        padding: 0.25rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+    
+    .status-applied {
+        background: #e3f2fd;
+        color: #1976d2;
+    }
+    
+    .status-interview {
+        background: #fff3e0;
+        color: #f57c00;
+    }
+    
+    .status-offer {
+        background: #e8f5e9;
+        color: #388e3c;
+    }
+    
+    .status-rejected {
+        background: #ffebee;
+        color: #d32f2f;
+    }
+    
+    .no-data, .no-details-message {
+        color: #6c757d;
+        font-style: italic;
+        padding: 1rem;
+        text-align: center;
+    }
+    
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+        .form-row {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 1rem;
+        }
+        
+        .form-group {
+            min-width: auto;
+        }
+        
+        .button-group {
+            flex-direction: column;
+        }
+        
+        .page-header {
+            flex-direction: column;
+            align-items: flex-start;
+        }
     }
 </style>
 {% endblock %}

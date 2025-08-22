@@ -1,3 +1,6 @@
+# Spacy models (manually downloaded or otherwise)
+models/
+
 # Virtual environment
 venv/
 .venv/

@@ -96,8 +96,7 @@ class JobApplicationBase(BaseModel):
     )
     response_days: Optional[int] = Field(
         None,
-        description="Automatically calculated response time in days",
-        exclude=True
+        description="Automatically calculated response time in days"
     )
     vacancy_description: Optional[str] = Field(
         None,

@@ -21,17 +21,81 @@
             <span class="stat-label">Offers</span>
         </div>
         <div class="stat-item">
-            <span class="stat-value">{{ stats.status_distribution.summary.in_interview|default(0) }}</span>
+            <span class="stat-value">{{ stats.basic_stats.interview_count|default(0) }}</span>
             <span class="stat-label">Interviews</span>
         </div>
     </div>
 
-    <!-- Rest of your existing content remains the same -->
-    <!-- ... -->
+    <!-- Status Distribution -->
+    <div class="card">
+        <h2>Application Status</h2>
+        <div class="status-grid">
+            {% if stats.status_distribution.individual_statuses %}
+                {% for status, details in stats.status_distribution.individual_statuses.items() %}
+                <div class="status-item status-{{ details.type|default('application') }}">
+                    <span class="status-name">{{ status }}</span>
+                    <span class="status-count">
+                        {{ details.count|default(0) }} 
+                        ({{ "%.1f"|format(details.percentage|default(0)) }}%)
+                    </span>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>No status data available</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Conversion Rates -->
+    <div class="card">
+        <h2>Conversion Rates</h2>
+        {% if stats.basic_stats.conversion_rates %}
+            <div class="conversion-item">
+                <span class="conversion-label">Application → Interview</span>
+                <span class="conversion-value">
+                    {{ "%.1f"|format(stats.basic_stats.conversion_rates.get('app_to_interview', 0)|default(0)) }}%
+                </span>
+            </div>
+            <div class="conversion-item">
+                <span class="conversion-label">Interview → Offer</span>
+                <span class="conversion-value">
+                    {{ "%.1f"|format(stats.basic_stats.conversion_rates.get('interview_to_offer', 0)|default(0)) }}%
+                </span>
+            </div>
+            <div class="conversion-item">
+                <span class="conversion-label">Application → Offer</span>
+                <span class="conversion-value">
+                    {{ "%.1f"|format(stats.basic_stats.conversion_rates.get('app_to_offer', 0)|default(0)) }}%
+                </span>
+            </div>
+        {% else %}
+            <p>No conversion data available</p>
+        {% endif %}
+    </div>
+
+    <!-- Response Times -->
+    <div class="card">
+        <h2>Response Times</h2>
+        {% if stats.response_metrics %}
+            <div class="stat-item">
+                <span class="stat-label">Average</span>
+                <span class="stat-value">
+                    {{ "%.1f"|format(stats.response_metrics.avg_response|default(0)) }} days
+                </span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Median</span>
+                <span class="stat-value">
+                    {{ "%.1f"|format(stats.response_metrics.median_response|default(0)) }} days
+                </span>
+            </div>
+        {% else %}
+            <p>No response time data available</p>
+        {% endif %}
+    </div>
 </div>
 
 <style>
-    /* Add these new styles */
     .dashboard-header {
         display: flex;
         justify-content: space-between;
@@ -55,14 +119,55 @@
         border-color: #ccc;
     }
 
-    /* Rest of your existing styles */
     .dashboard-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
         gap: 1.5rem;
         margin-top: 2rem;
     }
-    
-    /* ... other existing styles ... */
+
+    .card {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .stat-item {
+        margin: 1rem 0;
+    }
+
+    .stat-value {
+        font-size: 1.8rem;
+        font-weight: bold;
+        display: block;
+    }
+
+    .stat-label {
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .status-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.8rem;
+    }
+
+    .conversion-item {
+        margin: 1rem 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .conversion-label {
+        font-weight: 500;
+    }
+
+    .conversion-value {
+        font-weight: bold;
+        color: #2c5aa0;
+    }
 </style>
 {% endblock %}

@@ -4,11 +4,11 @@ import joblib
 import traceback
 import pandas as pd
 from flask import current_app
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Self, Optional
 from sklearn.pipeline import Pipeline ,make_pipeline
 from sklearn.compose import make_column_transformer
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
@@ -302,11 +302,11 @@ class JobPredictor:
 
         return make_pipeline(
             preprocessor,
-            GradientBoostingClassifier(
+            GradientBoostingRegressor(
                 n_estimators=150,
                 learning_rate=0.05,
                 max_depth=4,
-                class_weight='balanced'
+                loss='squared_error'
             )
         )
 
@@ -338,7 +338,7 @@ class JobPredictor:
                     for transformer, columns, _ in ct.transformers_
                 ]
 
-            gb = self.pipeline.named_steps.get('gradientboostingclassifier')
+            gb = self.pipeline.named_steps.get('gradientboostingregressor')
             if gb:
                 info['classifier_params'] = {
                     'n_estimators': gb.n_estimators,
