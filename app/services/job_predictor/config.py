@@ -115,54 +115,31 @@ INDUSTRY_PATTERNS = {
 }
 
 
-LANGUAGE_PATTERNS: LanguagePatterns = {
+LANGUAGE_PATTERNS = {
     'german': re.compile(
-        r'(?:fließend|verhandlungssicher|gut|geschäftssicher)\s+deutsch|'
-        r'deutsch\s*(?:kenntnisse|erforderlich|voraussetzung|kenntnisse)',
+        r'(?:fließend|verhandlungssicher|gut|geschäftssicher|erforderlich|voraussetzung|kenntnisse|sprachkenntnisse)\s+deutsch|'
+        r'deutsch\s*(?:kenntnisse|erforderlich|voraussetzung|sprachkenntnisse|erwünscht|muss|sollte)|'
+        r'german\s+(?:required|necessary|fluent|proficient|knowledge|skills|language)|'
+        r'deutschkenntnisse|'
+        r'german\s+language',
         re.IGNORECASE
     ),
+    
     'english': re.compile(
-        r'english\s+(?:fluent|proficient|required|working\s+knowledge)',
+        r'english\s+(?:fluent|proficient|required|necessary|working\s+knowledge|skills)|'
+        r'englisch\s+(?:fließend|verhandlungssicher|erforderlich|voraussetzung|kenntnisse)|'
+        r'business\s+english|'
+        r'englischkenntnisse',
         re.IGNORECASE
     ),
+    
     'german_levels': {
-        'A1': re.compile(
-            r'A1\s*deutsch|'
-            r'grundkenntnisse|'
-            r'anfängerkenntnisse',
-            re.IGNORECASE
-        ),
-        'A2': re.compile(
-            r'A2\s*deutsch|'
-            r'basiskenntnisse|'
-            r'einfache\s+konversation',
-            re.IGNORECASE
-        ),
-        'B1': re.compile(
-            r'B1\s*deutsch|'
-            r'fortgeschrittene\s+kenntnisse|'
-            r'selbständige\s+sprachverwendung',
-            re.IGNORECASE
-        ),
-        'B2': re.compile(
-            r'B2\s*deutsch|'
-            r'gute\s+kenntnisse|'
-            r'berufsbezogene\s+sprachkenntnisse',
-            re.IGNORECASE
-        ),
-        'C1': re.compile(
-            r'C1\s*deutsch|'
-            r'verhandlungssicher|'
-            r'fließend|'
-            r'geschäftssicher',
-            re.IGNORECASE
-        ),
-        'C2': re.compile(
-            r'C2\s*deutsch|'
-            r'muttersprachlich|'
-            r'herausragende\s+kenntnisse',
-            re.IGNORECASE
-        )
+        'A1': re.compile(r'A1|A1\s*deutsch|grundkenntnisse|anfängerkenntnisse|basic\s+german', re.IGNORECASE),
+        'A2': re.compile(r'A2|A2\s*deutsch|basiskenntnisse|einfache\s+konversation|elementary', re.IGNORECASE),
+        'B1': re.compile(r'B1|B1\s*deutsch|fortgeschrittene\s+kenntnisse|selbständige\s+sprachverwendung|intermediate', re.IGNORECASE),
+        'B2': re.compile(r'B2|B2\s*deutsch|gute\s+kenntnisse|berufsbezogene\s+sprachkenntnisse|good|confident', re.IGNORECASE),  # Added simple 'B2'
+        'C1': re.compile(r'C1|C1\s*deutsch|verhandlungssicher|fließend|geschäftssicher|advanced|fluent|business', re.IGNORECASE),
+        'C2': re.compile(r'C2|C2\s*deutsch|muttersprachlich|herausragende\s+kenntnisse|native|proficient', re.IGNORECASE)
     }
 }
 

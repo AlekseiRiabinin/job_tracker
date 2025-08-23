@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from faker import Faker
 from pathlib import Path
 
+
 VALID_STATUSES = {
     "Applied",
     "Interview/Phone", 
@@ -14,7 +15,7 @@ VALID_STATUSES = {
     "Ghosted"
 }
 
-# German job description templates
+
 GERMAN_DESCRIPTIONS = [
     "Wir suchen einen {level} {role} mit {experience} Jahren Erfahrung. {text}",
     "Zur Verstärkung unseres Teams suchen wir einen {level} {role} ({experience} Jahre Erfahrung). {text}",
@@ -22,6 +23,7 @@ GERMAN_DESCRIPTIONS = [
     "Ihre Aufgaben: Entwicklung und Implementierung als {role} mit {experience}+ Jahren Erfahrung. {text}",
     "Das erwartet Sie: Arbeit als {level} {role} mit mindestens {experience} Jahren Berufserfahrung. {text}"
 ]
+
 
 GERMAN_TEXT_SAMPLES = [
     "Sie arbeiten in einem agilen Team und entwickeln innovative Lösungen.",
@@ -36,6 +38,7 @@ GERMAN_TEXT_SAMPLES = [
     "Optimierung von Performance und Skalierbarkeit der Anwendungen."
 ]
 
+
 def generate_german_description(role, level, experience):
     """Generate a German job description."""
     template = random.choice(GERMAN_DESCRIPTIONS)
@@ -46,6 +49,7 @@ def generate_german_description(role, level, experience):
         experience=experience,
         text=german_text
     )
+
 
 def generate_job_application_data(num_records: int = 1000) -> list[dict]:
     """Generate realistic job application test data that matches the data model."""
@@ -68,7 +72,8 @@ def generate_job_application_data(num_records: int = 1000) -> list[dict]:
         "Potsdam": ["Oracle Germany", "SAP Innovation Center", "Miele Digital"],
         "Saarbrücken": ["SAP AI Research", "DFKI", "Bosch Smart Home"]
     }
-    
+
+
     sources = [
         "LinkedIn", "XING", "StepStone", "Indeed", "Glassdoor",
         "Stack Overflow Jobs", "Monster", "German Tech Jobs",
@@ -76,12 +81,14 @@ def generate_job_application_data(num_records: int = 1000) -> list[dict]:
         "Europass", "TheLocal", "Honeypot Jobs", "Freelance",
         "Upwork", "EURES", "Berufsstart", "Toptal", "Jobvector"
     ]
-    
+
+
     roles = ["Data Engineer", "Software Developer"]  
     levels = ["senior", "mid", "junior"]
     experiences = ["3+", "5+", "7+"]
     german_levels = ["A1", "A2", "B1", "B2", "C1", "C2", None]
-    
+
+
     applications = []
     for i in range(num_records):
         city = random.choice(list(cities_companies.keys()))
@@ -157,6 +164,7 @@ def generate_job_application_data(num_records: int = 1000) -> list[dict]:
         applications.append(application)
     
     return applications
+
 
 def save_to_json(
         data: list[dict],

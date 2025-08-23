@@ -6,6 +6,10 @@ from pymongo.errors import ConnectionFailure, OperationFailure
 from flasgger import Swagger
 from config import Config
 from .services.job_predictor.predictor import JobPredictor
+from .cli import cli
+
+
+__all__ = ['cli']
 
 
 def create_app(test_config: Optional[dict] = None) -> Flask:
@@ -60,7 +64,7 @@ def init_mongodb(app: Flask) -> None:
     """Initialize MongoDB connection with retry logic (fork-safe)."""
     if app.mongo_client is not None:
         return
-        
+
     max_retries = app.config.get('MONGO_MAX_RETRIES', 5)
     retry_delay = app.config.get('MONGO_RETRY_DELAY', 2)
     
