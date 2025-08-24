@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import joblib
 import traceback
 import logging
@@ -19,11 +20,6 @@ from .feature_engine import (
     create_enhanced_features
 )
 
-import __main__
-__main__.TechStackTransformer = TechStackTransformer
-__main__.LanguageAwareTfidf = LanguageAwareTfidf
-
-
 
 class JobPredictor:
     """ML class for data loading, training and making predictions."""
@@ -42,26 +38,41 @@ class JobPredictor:
 
         self._model_dir = (
             os.path.abspath(model_path) 
-            if model_path else os.path.abspath('models')
+            if model_path
+            else os.path.join(os.path.dirname(__file__), 'models')
         )
         os.makedirs(self._model_dir, exist_ok=True)
 
         self.pipeline = None
         available_models = self._get_available_models()
-        
+        self.logger.info(f"Available models: {available_models}")
+
         if len(available_models) > 0 and not train_mode:
             latest_model_path = self._get_latest_model()
+            self.logger.info(f"Latest model path: {latest_model_path}")
+
             if latest_model_path:             
                 try:
                     self.pipeline = self._load_model(latest_model_path)
-                    self.logger.info(
-                        f"Loaded model from "
-                        f"{os.path.basename(latest_model_path)} "
-                        f"(version {self.model_version})"
-                    )
+                    if hasattr(self.pipeline, 'predict'):
+                        self.logger.info(
+                            f"Successfully loaded model from "
+                            f"{os.path.basename(latest_model_path)} "
+                            f"(version {self.model_version})"
+                        )
+                    else:
+                        self.logger.error("Loaded model is not fitted")
+                        self.pipeline = None
                 except Exception as e:
                     self.logger.error(f"Failed to load model: {str(e)}")
+                    self.logger.error(traceback.format_exc())
                     self.pipeline = None
+
+        if self.pipeline is None and not train_mode:
+            self.logger.warning(
+                "No pre-trained model found, creating new pipeline"
+            )
+            self.pipeline = self.create_pipeline()
 
         if train_mode:
             if not db_config:
@@ -164,6 +175,12 @@ class JobPredictor:
         """Predict job application success probability."""
         REQUIRED_KEYS = {'vacancy_description', 'role', 'source'}
         PROFICIENCY_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
+
+        if not self._is_fitted():
+            raise RuntimeError(
+                f"Pipeline is not fitted yet. "
+                f"Please train the model first."
+            )
 
         if not all(key in job_data for key in REQUIRED_KEYS):
             missing = REQUIRED_KEYS - set(job_data.keys())
@@ -363,6 +380,23 @@ class JobPredictor:
 
         return info
 
+    def _is_fitted(self: Self) -> bool:
+        """Check if the pipeline is fitted."""
+        if self.pipeline is None:
+            return False
+        
+        try:
+            if (
+                hasattr(self.pipeline, 'steps') and 
+                len(self.pipeline.steps) > 0
+            ):
+                first_step = self.pipeline.steps[0][1]
+                if hasattr(first_step, 'transform'):
+                    return True
+            return False
+        except:
+            return False
+
     def _get_available_models(self: Self) -> list[str]:
         """Return list of available model files."""
         try:
@@ -433,50 +467,76 @@ class JobPredictor:
         """Load serialized model pipeline."""
 
         # Ensure the class is registered every time we load
-        from .feature_engine import TechStackTransformer
         import __main__
-        if not hasattr(__main__, 'TechStackTransformer'):
-            __main__.TechStackTransformer = TechStackTransformer
-   
-        return joblib.load(path)
+        __main__.TechStackTransformer = TechStackTransformer
+        __main__.LanguageAwareTfidf = LanguageAwareTfidf
 
+        current_module = sys.modules[__name__]
+        setattr(
+            current_module, 'TechStackTransformer', TechStackTransformer
+        )
+        setattr(
+            current_module, 'LanguageAwareTfidf', LanguageAwareTfidf
+        )
+        
+        self.logger.info(f"Loading model from: {path}")
+
+        try:
+            pipeline = joblib.load(path)
+            self.logger.info("Model loaded successfully")
+            
+            if hasattr(pipeline, 'steps') and len(pipeline.steps) > 0:
+                first_step = pipeline.steps[0][1]
+                if hasattr(first_step, 'transform'):
+                    self.logger.info("Pipeline appears to be fitted")
+                else:
+                    self.logger.warning(
+                        "First step doesn't have transform method"
+                    )
+            else:
+                self.logger.warning("Pipeline has no steps")
+                
+            return pipeline
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load model: {str(e)}")
+            raise
+        
     def _get_latest_model(self: Self) -> Optional[str]:
         """Return the path to the latest model."""
         model_files = self._get_available_models()
         if not model_files:
             return None
 
-        versioned_files = [
-            f for f in model_files 
-            if '_v' in f and not f.startswith('enhanced_model')
-        ]
-
-        if versioned_files:
-            versioned_files.sort(
-                key=lambda f: os.path.getmtime(
-                    os.path.join(self._model_dir, f)
-                ), reverse=True
-            )
-            latest_versioned = versioned_files[0]
-            
-            version_match = re.search(r'_v([\d.]+)_', latest_versioned)
-            if version_match:
-                self.model_version = version_match.group(1)
-        
         enhanced_model_path = os.path.join(
             self._model_dir, "enhanced_model.pkl"
         )
         if os.path.exists(enhanced_model_path):
             return enhanced_model_path
-        elif versioned_files:
-            return os.path.join(self._model_dir, versioned_files[0])
-        else:
-            model_files.sort(
-                key=lambda f: os.path.getmtime(
-                    os.path.join(self._model_dir, f)
-                ), reverse=True
+
+        versioned_files = [
+            f for f in model_files 
+            if (
+                '_v' in os.path.basename(f) and 
+                not os.path.basename(f).startswith('enhanced_model')
             )
-            return os.path.join(self._model_dir, model_files[0])
+        ]
+
+        if versioned_files:
+            versioned_files.sort(
+                key=lambda f: os.path.getmtime(f), reverse=True
+            )
+            latest_versioned = versioned_files[0]
+            
+            version_match = re.search(
+                r'_v([\d.]+)_', os.path.basename(latest_versioned)
+            )
+            if version_match:
+                self.model_version = version_match.group(1)
+            return latest_versioned
+
+        model_files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+        return model_files[0]
 
     def _increment_version(
             self: Self,
