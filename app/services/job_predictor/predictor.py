@@ -2,6 +2,7 @@ import os
 import re
 import joblib
 import traceback
+import logging
 import pandas as pd
 from flask import current_app
 from datetime import datetime
@@ -18,6 +19,11 @@ from .feature_engine import (
     create_enhanced_features
 )
 
+import __main__
+__main__.TechStackTransformer = TechStackTransformer
+__main__.LanguageAwareTfidf = LanguageAwareTfidf
+
+
 
 class JobPredictor:
     """ML class for data loading, training and making predictions."""
@@ -29,42 +35,40 @@ class JobPredictor:
         major_version: int = 1
     ) -> None:
         """Initialize prediction service with model path checking."""
+        self.logger = logging.getLogger(__name__)
         self.major_version = major_version
         self.model_version = f"{major_version}.0"
         self.feature_processor = create_enhanced_features
+
         self._model_dir = (
             os.path.abspath(model_path) 
             if model_path else os.path.abspath('models')
         )
-
         os.makedirs(self._model_dir, exist_ok=True)
+
         self.pipeline = None
         available_models = self._get_available_models()
-
-        if available_models and not train_mode:
-            model_path = model_path or self._get_latest_model()
-            try:
-                self.pipeline = self._load_model(model_path)
-                version_match = re.search(
-                    r'_v([\d.]+)_', os.path.basename(model_path)
-                )
-                if version_match:
-                    self.model_version = version_match.group(1)
-                else:
-                    self.logger.warning(
-                        f"Could not extract version from "
-                        f"{model_path}, keeping default"
-                    )
-            except Exception as e:
-                self.logger.error(f"Failed to load model: {str(e)}")
-                self.pipeline = None
         
+        if len(available_models) > 0 and not train_mode:
+            latest_model_path = self._get_latest_model()
+            if latest_model_path:             
+                try:
+                    self.pipeline = self._load_model(latest_model_path)
+                    self.logger.info(
+                        f"Loaded model from "
+                        f"{os.path.basename(latest_model_path)} "
+                        f"(version {self.model_version})"
+                    )
+                except Exception as e:
+                    self.logger.error(f"Failed to load model: {str(e)}")
+                    self.pipeline = None
+
         if train_mode:
             if not db_config:
                 raise ValueError("db_config required when train_mode=True")
             
             try:
-                if available_models:
+                if len(available_models) > 0:
                     self.model_version = self._increment_version()
                 metrics = self.train_from_mongodb(**db_config)
                 self.model_version = metrics.get(
@@ -111,7 +115,7 @@ class JobPredictor:
                 random_state=random_state,
                 stratify=pd.cut(y, bins=[0, 0.3, 0.7, 1.0])
             )
-            
+
             self.pipeline = self.create_pipeline()
             self.pipeline.fit(X_train, y_train)
             
@@ -168,13 +172,13 @@ class JobPredictor:
         try:
             features = self.feature_processor(pd.DataFrame([job_data]))
             
-            if features.iloc[0]['german_required']:
+            if features.iloc[0]['lang_german_required']:
                 if not german_level:
                     return 0.0
 
                 try:
                     required_idx = PROFICIENCY_ORDER.index(
-                        features.iloc[0]['german_level']
+                        features.iloc[0]['lang_german_level']
                     )
                     user_idx = PROFICIENCY_ORDER.index(german_level)
                     if required_idx > user_idx:
@@ -182,8 +186,8 @@ class JobPredictor:
                 except ValueError:
                     return 0.0
 
-            proba = float(self.pipeline.predict_proba(features)[0][1])
-            return max(0.0, min(1.0, proba))
+            prediction = float(self.pipeline.predict(features)[0][1])
+            return max(0.0, min(1.0, prediction))
 
         except Exception as e:
             raise RuntimeError(f"Prediction failed: {str(e)}") from e
@@ -242,17 +246,17 @@ class JobPredictor:
                     current_german = batch.get('ml', {}).get('german_level')
 
                     german_level = batch.get('requirements', {}).get('german_level')
-                    proba = self.predict(job_data, german_level=german_level)
+                    prediction = self.predict(job_data, german_level=german_level)
 
                     needs_update = (
                         current_pred is None or
-                        abs(proba - current_pred) > update_threshold or
+                        abs(prediction - current_pred) > update_threshold or
                         current_german != german_level
                     )
 
                     if needs_update:
                         update_data = {
-                            "ml.success_probability": proba,
+                            "ml.success_probability": prediction,
                             "ml.german_level": german_level,
                             "ml.last_prediction_date": datetime.now()
                         }
@@ -359,15 +363,16 @@ class JobPredictor:
 
         return info
 
-    def _get_available_models(self: Self):
-        """Check if any model files exist in the directory."""
+    def _get_available_models(self: Self) -> list[str]:
+        """Return list of available model files."""
         try:
-            return any(
-                f.endswith('.pkl') 
-                for f in os.listdir(self._model_dir)
-            )
+            return [
+                os.path.join(self._model_dir, f)
+                for f in os.listdir(self._model_dir) 
+                if f.endswith('.pkl')
+            ]
         except FileNotFoundError:
-            return False
+            return []
 
     def _get_class_distribution(
         self: Self,
@@ -426,16 +431,52 @@ class JobPredictor:
 
     def _load_model(self: Self, path: str) -> Pipeline:
         """Load serialized model pipeline."""
+
+        # Ensure the class is registered every time we load
+        from .feature_engine import TechStackTransformer
+        import __main__
+        if not hasattr(__main__, 'TechStackTransformer'):
+            __main__.TechStackTransformer = TechStackTransformer
+   
         return joblib.load(path)
 
-    def _get_latest_model(self: Self) -> str:
-        """Resolve latest model path."""
-        latest_path = os.path.join(self._model_dir, 'latest_model.txt')
+    def _get_latest_model(self: Self) -> Optional[str]:
+        """Return the path to the latest model."""
+        model_files = self._get_available_models()
+        if not model_files:
+            return None
 
-        if os.path.exists(latest_path):
-            with open(latest_path) as f:
-                return os.path.join(self._model_dir, f.read().strip())
-        return os.path.join(self._model_dir, 'enhanced_model.pkl')
+        versioned_files = [
+            f for f in model_files 
+            if '_v' in f and not f.startswith('enhanced_model')
+        ]
+
+        if versioned_files:
+            versioned_files.sort(
+                key=lambda f: os.path.getmtime(
+                    os.path.join(self._model_dir, f)
+                ), reverse=True
+            )
+            latest_versioned = versioned_files[0]
+            
+            version_match = re.search(r'_v([\d.]+)_', latest_versioned)
+            if version_match:
+                self.model_version = version_match.group(1)
+        
+        enhanced_model_path = os.path.join(
+            self._model_dir, "enhanced_model.pkl"
+        )
+        if os.path.exists(enhanced_model_path):
+            return enhanced_model_path
+        elif versioned_files:
+            return os.path.join(self._model_dir, versioned_files[0])
+        else:
+            model_files.sort(
+                key=lambda f: os.path.getmtime(
+                    os.path.join(self._model_dir, f)
+                ), reverse=True
+            )
+            return os.path.join(self._model_dir, model_files[0])
 
     def _increment_version(
             self: Self,

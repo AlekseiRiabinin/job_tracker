@@ -3,10 +3,15 @@ from typing import Self
 from pathlib import Path
 from dotenv import load_dotenv
 
+
 load_dotenv()
+
 
 class Config:
     """App configuration with validation."""
+
+    # This goes up to the 'app' directory
+    BASE_DIR = Path(__file__).parent / 'app'
 
     # MongoDB
     MONGO_USERNAME = os.getenv('MONGO_INITDB_ROOT_USERNAME')
@@ -18,7 +23,7 @@ class Config:
     MONGO_RETRY_DELAY = int(os.getenv('MONGO_RETRY_DELAY', 2))
     
     # ML
-    ML_MODEL_DIR = str(Path(__file__).parent / 'services/job_predictor/models')
+    ML_MODEL_DIR = str(BASE_DIR / 'services' / 'job_predictor' / 'models')
     TRAINING_COLLECTION = 'applications'
     MODEL_MAJOR_VERSION = int(os.getenv('MODEL_MAJOR_VERSION', 1))
     TRAIN_MODE = os.getenv('TRAIN_MODE', 'False').lower() == 'true'
@@ -49,3 +54,8 @@ class Config:
         for var in required:
             if not getattr(cls, var):
                 raise ValueError(f"Missing required config: {var}")
+
+    print(f"Config file: {__file__}")
+    print(f"BASE_DIR: {BASE_DIR}")
+    print(f"ML_MODEL_DIR: {ML_MODEL_DIR}")
+    print(f"Exists: {os.path.exists(ML_MODEL_DIR)}")

@@ -115,7 +115,7 @@ INDUSTRY_PATTERNS = {
 }
 
 
-LANGUAGE_PATTERNS = {
+LANGUAGE_PATTERNS: LanguagePatterns = {
     'german': re.compile(
         r'(?:fließend|verhandlungssicher|gut|geschäftssicher|erforderlich|voraussetzung|kenntnisse|sprachkenntnisse)\s+deutsch|'
         r'deutsch\s*(?:kenntnisse|erforderlich|voraussetzung|sprachkenntnisse|erwünscht|muss|sollte)|'

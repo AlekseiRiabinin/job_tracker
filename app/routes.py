@@ -269,8 +269,8 @@ def ml_predict() -> FlaskResponse:
 
     # Model readiness check
     model_ready = (
-        hasattr(current_app.predictor, 'pipeline') and 
-        current_app.predictor.pipeline is not None
+        hasattr(current_app.predictor, 'is_ready') and 
+        current_app.predictor.is_ready()
     )
     model_version = getattr(
         current_app.predictor, 'model_version', '0.0'

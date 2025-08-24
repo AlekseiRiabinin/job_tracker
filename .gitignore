@@ -1,5 +1,6 @@
 # Spacy models (manually downloaded or otherwise)
-models/
+# models/
+spacy/
 
 # Virtual environment
 venv/
@@ -14,7 +15,7 @@ dist/
 build/
 
 # Environment variables
-.env
+# .env
 .env.local
 
 # IDE-specific files
@@ -26,9 +27,9 @@ build/
 # Docker
 docker-compose.override.yml
 
-# MongoDB data (never commit database files!)
-data/
-mongodb_data/  # Docker volume folder
+# MongoDB data
+# data/
+mongodb_data/
 *.ns
 *.mongod.lock
 
