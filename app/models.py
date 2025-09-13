@@ -2,7 +2,7 @@ from flask import current_app
 from datetime import datetime
 from typing import (
     Optional, Self, ClassVar, TypedDict,
-    Any, Literal, NotRequired, get_args
+    Any, Literal, NotRequired
 )
 from pydantic import (
     BaseModel, ConfigDict, Field,
@@ -30,11 +30,13 @@ type StatusType = Literal[
 
 class RequirementsType(TypedDict):
     """Requirements subdocument structure."""
+
     german_level: NotRequired[str]
 
 
 class ApplicationType(TypedDict):
     """Fields accessed by metrics calculation."""
+
     status: StatusType
     applied_date: datetime
     response_date: NotRequired[datetime]
@@ -43,6 +45,7 @@ class ApplicationType(TypedDict):
 
 class SuccessMetrics(TypedDict):
     """Fields used for ML model."""
+
     success_probability: float
     german_level: NotRequired[str]
     last_prediction_date: datetime
@@ -124,18 +127,26 @@ class JobApplicationBase(BaseModel):
     @field_validator('status')
     def validate_status(cls: Self, v: str) -> str:
         if v not in cls.VALID_STATUSES:
-            raise ValueError(f"Status must be one of {cls.VALID_STATUSES}")
+            raise ValueError(
+                f"Status must be one of {cls.VALID_STATUSES}"
+            )
+
         return v
 
     @model_validator(mode='after')
     def calculate_response_time(self: Self) -> Self:
         if self.applied_date and self.response_date:
-            self.response_days = (self.response_date - self.applied_date).days
+            self.response_days = (
+                self.response_date - 
+                self.applied_date
+            ).days
+
         return self
 
 
 class JobApplicationCreate(JobApplicationBase):
     """Schema for creating new job applications."""
+
     applied_date: Optional[datetime] = Field(
         None,
         description="Will be set to current time if not provided"
@@ -149,17 +160,27 @@ class JobApplicationCreate(JobApplicationBase):
     def parse_dates(cls: Self, value: Any) -> Optional[datetime]:
         if value == '' or value is None:
             return None
+
         if isinstance(value, str):
             try:
                 return datetime.fromisoformat(value)
+
             except ValueError:
-                raise ValueError("Invalid date format. Use YYYY-MM-DD")
+                raise ValueError(
+                    "Invalid date format. Use YYYY-MM-DD"
+                )
+
         return value
 
 
 class JobApplicationDB(JobApplicationBase):
     """Complete job application schema including MongoDB ID."""
-    id: ObjectId = Field(..., alias="_id", description="MongoDB document ID")
+
+    id: ObjectId = Field(
+        ...,
+        alias="_id",
+        description="MongoDB document ID"
+    )
 
     model_config = ConfigDict(
         json_encoders={ObjectId: str},
@@ -177,6 +198,7 @@ class JobApplication:
         application: ApplicationType
     ) -> SuccessMetrics:
         """Calculate success metrics based on application progress."""
+
         status = application['status']
         current_date = datetime.now()
         
@@ -190,7 +212,9 @@ class JobApplication:
             "Ghosted": 0.05
         }
 
-        days_since_applied = (current_date - application['applied_date']).days
+        days_since_applied = (
+            current_date - application['applied_date']
+        ).days
         time_factor = max(0, 1 - (days_since_applied / 90))
 
         response_bonus = 0
@@ -201,7 +225,9 @@ class JobApplication:
             response_bonus = 0.2 * (1 - min(response_days, 14) / 14)
 
         base_prob = status_weights.get(status, 0)
-        composite_prob = min(1, base_prob * (1 + time_factor) / 2 + response_bonus)
+        composite_prob = min(
+            1, base_prob * (1 + time_factor) / 2 + response_bonus
+        )
 
         return {
             "success_probability": round(composite_prob, 2),
@@ -218,19 +244,26 @@ class JobApplication:
 
     @staticmethod
     def get_db() -> Database:
-        """Get MongoDB instance from Flask app context."""
-        if not current_app:
-            raise RuntimeError("Not in Flask application context")
-        return current_app.db
+        """Get MongoDB instance using the centralized get_db function."""
+
+        try:
+            from . import get_db
+            return get_db()
+
+        except (ImportError, RuntimeError):
+            if not current_app:
+                raise RuntimeError("Not in Flask application context")
+            return current_app.db
 
     @staticmethod
     def get_all() -> list[JobApplicationDB]:
         """Retrieve all applications sorted by newest first."""
+
+        db = JobApplication.get_db()
         return [
             JobApplicationDB(**app) 
             for app in (
-                JobApplication.get_db()
-                    .applications
+                db.applications
                     .find()
                     .sort("applied_date", -1)
             )
@@ -239,7 +272,11 @@ class JobApplication:
     @staticmethod
     def create(data: dict[str, str | datetime]) -> InsertOneResult:
         """Insert a new job application with auto-calculated ML metrics."""
-        app_data = JobApplicationCreate(**data).model_dump(exclude_unset=True)
+
+        db = JobApplication.get_db()
+        app_data = (
+            JobApplicationCreate(**data).model_dump(exclude_unset=True)
+        )
 
         if not app_data.get('applied_date'):
             app_data['applied_date'] = datetime.now()
@@ -256,33 +293,40 @@ class JobApplication:
             })
             app_data['ml'].update(metrics)
 
-        return JobApplication.get_db().applications.insert_one(app_data)
+        return db.applications.insert_one(app_data)
 
     @staticmethod
     def update(job_id: str, data: dict[str, str]) -> UpdateResult:
-        """Update application with recalculated ML metrics when status changes."""
-        update_data = JobApplicationCreate(**data).model_dump(exclude_unset=True)
+        """Update application with recalculated ML metrics."""
+
+        db = JobApplication.get_db()
+        update_data = (
+            JobApplicationCreate(**data).model_dump(exclude_unset=True)
+        )
         
         if 'status' in update_data:
-            current = JobApplication.get_db().applications.find_one(
+            current = db.applications.find_one(
                 {"_id": ObjectId(job_id)},
-                {"applied_date": 1, "response_date": 1, "ml_meta": 1}
+                {"applied_date": 1, "response_date": 1, "ml": 1}
             )
 
             if current:
+                current_dict = dict(current)
                 metrics = JobApplication.calculate_success_metrics({
                     'status': update_data['status'],
-                    'applied_date': current.get('applied_date', datetime.now()),
-                    'response_date': current.get('response_date')
+                    'applied_date': (
+                        current_dict.get('applied_date', datetime.now())
+                    ),
+                    'response_date': current_dict.get('response_date')
                 })
 
-                # Preserve existing ml_meta fields not being updated
-                update_data['ml_meta'] = {
-                    **current.get('ml_meta', {}),
+                # Preserve existing ml fields not being updated
+                update_data['ml'] = {
+                    **current_dict.get('ml', {}),
                     **metrics
                 }
 
-        return JobApplication.get_db().applications.update_one(
+        return db.applications.update_one(
             {"_id": ObjectId(job_id)},
             {"$set": update_data}
         )
@@ -290,7 +334,9 @@ class JobApplication:
     @staticmethod
     def delete(job_id: str) -> DeleteResult:
         """Delete an application by ID."""
-        return JobApplication.get_db().applications.delete_one(
+
+        db = JobApplication.get_db()
+        return db.applications.delete_one(
             {"_id": ObjectId(job_id)}
         )
 
@@ -301,7 +347,9 @@ class JobApplication:
         german_level: str
     ) -> None:
         """Safe update method for ML service."""
-        JobApplication.get_db().applications.update_one(
+
+        db = JobApplication.get_db()
+        db.applications.update_one(
             {"_id": ObjectId(job_id)},
             {"$set": {
                 "ml.success_probability": probability,
@@ -313,14 +361,15 @@ class JobApplication:
     @staticmethod
     def get_ml_training_data() -> list[dict]:
         """For job_predictor service only."""
-        return [
+
+        db = JobApplication.get_db()
+        return list(db.applications.find(
+            {"vacancy_description": {"$exists": True}},
             {
-                "vacancy_description": app.vacancy_description,
-                "role": app.role,
-                "source": app.source,
-                **app.ml_meta
+                "vacancy_description": 1,
+                "role": 1,
+                "source": 1,
+                "ml": 1,
+                "_id": 0
             }
-            for app in JobApplication.get_db().applications.find(
-                {"vacancy_description": {"$exists": True}}
-            )
-        ]
+        ))

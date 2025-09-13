@@ -3,7 +3,7 @@ import csv
 from datetime import datetime
 from typing import Any, Optional
 from bson import ObjectId
-from ..models import JobApplication
+from .. import get_db
 
 
 class DataExporter:
@@ -31,7 +31,7 @@ class DataExporter:
     ) -> int:
         """Export data from MongoDB to a JSON file."""
 
-        db = JobApplication.get_db()
+        db = get_db()
         collection = db[collection_name]
         
         query = query or {}
@@ -67,7 +67,7 @@ class DataExporter:
     ) -> int:
         """Export data from MongoDB to a CSV file."""
 
-        db = JobApplication.get_db()
+        db = get_db()
         collection = db[collection_name]
         
         query = query or {}
@@ -107,7 +107,7 @@ class DataExporter:
     ) -> dict:
         """Get statistics about a collection."""
 
-        db = JobApplication.get_db()
+        db = get_db()
         collection = db[collection_name]
         
         total_count = collection.count_documents({})

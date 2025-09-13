@@ -3,7 +3,8 @@ import csv
 from pathlib import Path
 from datetime import datetime
 from typing import Any
-from ..models import JobApplication, JobApplicationCreate
+from .. import get_db
+from ..models import JobApplicationCreate
 
 
 class DataLoader:
@@ -46,7 +47,7 @@ class DataLoader:
         with open(file_path, 'r') as f:
             data = json.load(f)
         
-        db = JobApplication.get_db()
+        db = get_db()
         collection = db[collection_name]
 
         for item in data:
@@ -81,7 +82,7 @@ class DataLoader:
                 f"CSV file not found at {file_path}"
             )
         
-        db = JobApplication.get_db()
+        db = get_db()
         collection = db[collection_name]
         loaded_count = 0
 

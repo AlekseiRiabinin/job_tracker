@@ -106,6 +106,7 @@ class AnalyticsService:
     @staticmethod
     def get_response_metrics() -> dict:
         """Comprehensive response time analysis."""
+
         pipeline = [
             {"$match": {"response_days": {"$exists": True}}},
             {"$group": {
@@ -183,7 +184,7 @@ class AnalyticsService:
             }},
             "count": {"$sum": 1}
         }
-        
+
         if include_applications:
             group_stage["applications"] = {
                 "$push": {

@@ -19,6 +19,7 @@ type FlaskResponse = Response | WerkzeugResponse | str
 
 def is_api_request() -> bool:
     """Check if request prefers JSON (API) or HTML (web)."""
+
     return (
         request.args.get('format') == 'json' or
         request.headers.get('Content-Type') == 'application/json' or
@@ -30,9 +31,12 @@ def is_api_request() -> bool:
 @bp.route('/', methods=['GET'])
 def index() -> FlaskResponse:
     """Display all applications with proper error handling."""
+
     try:
-        # Explicit database check
-        if not hasattr(current_app, 'db') or current_app.db is None:
+        if (
+            not hasattr(current_app, 'db') or 
+            current_app.db is None
+        ):
             raise RuntimeError("Database not initialized")
         
         jobs = JobApplication.get_all()
@@ -47,7 +51,8 @@ def index() -> FlaskResponse:
         
     except Exception as e:
         current_app.logger.error(
-            f"Index route failed: {str(e)}\n{traceback.format_exc()}"
+            f"Index route failed: "
+            f"{str(e)}\n{traceback.format_exc()}"
         )
         if is_api_request():
             return jsonify({
@@ -62,6 +67,7 @@ def index() -> FlaskResponse:
 @bp.route('/add', methods=['GET', 'POST'])
 def add_job() -> FlaskResponse:
     """Handle job application creation."""
+
     if request.method == 'POST':
         try:
             data = (
@@ -70,9 +76,16 @@ def add_job() -> FlaskResponse:
                 else request.form.to_dict()
             )
 
-            if 'response_date' in data and data['response_date'] == '':
+            if (
+                'response_date' in data and 
+                data['response_date'] == ''
+            ):
                 data['response_date'] = None
-            if 'applied_date' in data and data['applied_date'] == '':
+
+            if (
+                'applied_date' in data and 
+                data['applied_date'] == ''
+            ):
                 data['applied_date'] = None
 
             result = JobApplication.create(data)
@@ -95,12 +108,14 @@ def add_job() -> FlaskResponse:
     
     if is_api_request():
         return jsonify({"error": "Use POST to create jobs"}), 405
+
     return render_template('add_job.html')
 
 
 @bp.route('/edit/<job_id>', methods=['GET', 'POST'])
 def edit_job(job_id: str) -> FlaskResponse:
     """Handle editing job applications."""
+
     try:
         job = JobApplication.get_db().applications.find_one(
             {"_id": ObjectId(job_id)}
@@ -148,12 +163,13 @@ def edit_job(job_id: str) -> FlaskResponse:
 @bp.route('/delete/<job_id>', methods=['DELETE', 'GET'])
 def delete_job(job_id: str) -> FlaskResponse:
     """Handle application deletion."""
+
     try:
         JobApplication.delete(job_id)
         
         if request.method == 'DELETE' or is_api_request():
             return jsonify({"status": "success"})
-            
+
         return redirect(url_for('main.index'))
         
     except InvalidId:
@@ -164,7 +180,8 @@ def delete_job(job_id: str) -> FlaskResponse:
 
 @bp.route('/analytics/summary', methods=['GET'])
 def analytics_summary() -> FlaskResponse:
-    """Display comprehensive summary statistics for job applications."""
+    """Display summary statistics for job applications."""
+
     try:
         stats = {
             "basic_stats": AnalyticsService.get_summary_stats(),
@@ -199,6 +216,7 @@ def analytics_summary() -> FlaskResponse:
 @bp.route('/analytics/timeseries', methods=['GET'])
 def analytics_timeseries() -> str | dict:
     """Display time-series data of applications."""
+
     try:
         start_date = request.args.get(
             'start',
@@ -264,6 +282,7 @@ def ml_predict() -> FlaskResponse:
             return jsonify(
                 {'status': 'error', 'error': error_msg}
             ), 503
+
         flash(error_msg, 'danger')
         return redirect(url_for('main.index'))
 
@@ -312,6 +331,7 @@ def ml_predict() -> FlaskResponse:
                 'solution': 'Retrain the model first',
                 'retrain_endpoint': url_for('main.ml_retrain')
             }), 503
+
         flash(error_msg, 'warning')
         return redirect(url_for('main.ml_retrain'))
 
@@ -344,6 +364,7 @@ def ml_predict() -> FlaskResponse:
                     list(required_fields - set(data.keys()))
                 )
             }), 400
+
         flash(error_msg, 'warning')
         return redirect(url_for('main.ml_predict'))
 
@@ -364,7 +385,7 @@ def ml_predict() -> FlaskResponse:
                 'probability': float(proba),
                 'model_version': model_version,
                 'prediction_meta': {
-                    'threshold': 0.5,  # Example value
+                    'threshold': 0.5,
                     'result': 'Probability of application success'
                 }
             })
@@ -387,6 +408,7 @@ def ml_predict() -> FlaskResponse:
                 'error': error_msg,
                 'type': 'validation_error'
             }), 400
+
         flash(error_msg, 'warning')
         return redirect(url_for('main.ml_predict'))
         
@@ -403,6 +425,7 @@ def ml_predict() -> FlaskResponse:
                 'error_details': str(e),
                 'support_contact': 'aleksei.riabinin@yahoo.com'
             }), 500
+
         flash(error_msg, 'danger')
         return redirect(url_for('main.ml_predict'))
 
@@ -421,6 +444,7 @@ def ml_batch_predict() -> FlaskResponse:
             return jsonify(
                 {'status': 'error', 'error': error_msg}
             ), 503
+
         flash(error_msg, 'danger')
         return redirect(url_for('main.index'))
 
@@ -445,6 +469,7 @@ def ml_batch_predict() -> FlaskResponse:
                 'solution': 'Retrain the model first',
                 'retrain_endpoint': url_for('main.ml_retrain')
             }), 503
+
         flash(error_msg, 'warning')
         return redirect(url_for('main.ml_retrain'))
 
@@ -475,6 +500,7 @@ def ml_batch_predict() -> FlaskResponse:
                         }
                     }
                 }), 400
+
             flash(error_msg, 'warning')
             return redirect(url_for('main.ml_batch_predict'))
 
@@ -512,7 +538,8 @@ def ml_batch_predict() -> FlaskResponse:
             return jsonify(response_data)
 
         flash(
-            f"Batch prediction complete: {results['processed']} processed, "
+            f"Batch prediction complete: "
+            f"{results['processed']} processed, "
             f"{results['updated']} updated", 
             'success'
         )
@@ -530,6 +557,7 @@ def ml_batch_predict() -> FlaskResponse:
                 'error': error_msg,
                 'type': 'validation_error'
             }), 400
+
         flash(error_msg, 'warning')
         return redirect(url_for('main.ml_batch_predict'))
         
@@ -546,6 +574,7 @@ def ml_batch_predict() -> FlaskResponse:
                 'error_details': str(e),
                 'support_contact': 'aleksei.riabinin@yahoo.com'
             }), 500
+
         flash(error_msg, 'danger')
         return redirect(url_for('main.ml_batch_predict'))
 
@@ -561,11 +590,15 @@ def ml_retrain() -> FlaskResponse:
         error_msg = "ML service is not available"
         if is_api_request():
             return jsonify({'status': 'error', 'error': error_msg}), 503
+
         flash(error_msg, 'danger')
         return redirect(url_for('main.index'))
 
     if request.method == 'POST':
-        if not is_api_request() and not request.form.get('confirm'):
+        if (
+            not is_api_request() and 
+            not request.form.get('confirm')
+        ):
             flash("You must confirm the retraining operation", 'warning')
             return redirect(url_for('main.ml_retrain'))
 
@@ -596,6 +629,7 @@ def ml_retrain() -> FlaskResponse:
                     'error': error_msg,
                     'type': 'validation_error'
                 }), 400
+
             flash(error_msg, 'warning')
             return redirect(url_for('main.ml_retrain'))
             
@@ -611,6 +645,7 @@ def ml_retrain() -> FlaskResponse:
                     'error': error_msg,
                     'details': str(e)
                 }), 500
+
             flash(error_msg, 'danger')
             return redirect(url_for('main.ml_retrain'))
 
@@ -623,8 +658,8 @@ def ml_retrain() -> FlaskResponse:
     model_info = {
         'version': current_app.predictor.model_version,
         'last_retrained': (
-            datetime.now().isoformat() if model_ready 
-            else "Never"
+            datetime.now().isoformat() 
+            if model_ready else "Never"
         ),
         'model_type': 'GradientBoostingClassifier',
         'is_ready': model_ready

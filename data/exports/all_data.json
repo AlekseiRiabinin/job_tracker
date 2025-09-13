@@ -1,0 +1,151 @@
+[
+  {
+    "_id": "68a0ab0df8bed713ef102145",
+    "company": "Yandex",
+    "location": "Moscow",
+    "role": "Software Developer",
+    "status": "Applied",
+    "notes": "Test Test",
+    "source": "Indeed",
+    "applied_date": "2025-04-18T00:00:00",
+    "response_date": "2025-07-21T00:00:00",
+    "vacancy_description": "Test",
+    "ml_meta": {
+      "success_probability": 0.05,
+      "confidence_factor": 0.6777777777777778,
+      "last_calculated": "2025-08-16 16:00:57.111000",
+      "german_level": null,
+      "last_prediction_date": "2025-08-19 19:46:53.862000",
+      "_calculated": {
+        "confidence_factor": 0,
+        "status_weight": 0.1,
+        "response_bonus": 0.0
+      }
+    },
+    "response_days": 94
+  },
+  {
+    "_id": "68a1ebb17e1d93cd4098c2df",
+    "company": "Sber",
+    "location": "Moscow",
+    "role": "Data Engineer",
+    "status": "Applied",
+    "notes": "Test",
+    "source": "LinkedIn",
+    "applied_date": "2025-04-04T00:00:00",
+    "response_date": "2025-07-19T00:00:00",
+    "vacancy_description": "Test",
+    "ml_meta": {
+      "success_probability": 0.05,
+      "confidence_factor": 0,
+      "last_calculated": "2025-08-17 14:48:17.156000",
+      "german_level": null,
+      "last_prediction_date": "2025-08-19 19:47:02.767000",
+      "_calculated": {
+        "confidence_factor": 0,
+        "status_weight": 0.1,
+        "response_bonus": 0.0
+      }
+    },
+    "response_days": 106
+  },
+  {
+    "_id": "68a23924d0efc994c4f21393",
+    "company": "Alfa",
+    "location": "SPb",
+    "role": "Data Engineer",
+    "status": "Applied",
+    "notes": "",
+    "source": "Other",
+    "applied_date": "2025-01-21T00:00:00",
+    "response_date": "2025-04-23T00:00:00",
+    "vacancy_description": "Test",
+    "ml": {
+      "success_probability": 0.15,
+      "german_level": null,
+      "last_prediction_date": "2025-08-17 20:18:44.823000",
+      "_calculated": {
+        "confidence_factor": 2.0666666666666664,
+        "status_weight": 0.1,
+        "response_bonus": 0
+      }
+    },
+    "ml_meta": {
+      "success_probability": 0.05,
+      "german_level": null,
+      "last_prediction_date": "2025-08-19 19:47:19.730000",
+      "_calculated": {
+        "confidence_factor": 0,
+        "status_weight": 0.1,
+        "response_bonus": 0.0
+      }
+    },
+    "response_days": 92
+  },
+  {
+    "_id": "68a4cfc9a3ccf584ee2c9693",
+    "company": "Tesla",
+    "location": "US",
+    "role": "Data Engineer",
+    "status": "Applied",
+    "notes": "",
+    "source": "Other",
+    "applied_date": "2025-04-19T00:00:00",
+    "response_date": "2025-06-15T00:00:00",
+    "vacancy_description": "",
+    "ml": {
+      "success_probability": 0.1,
+      "german_level": null,
+      "last_prediction_date": "2025-08-19 19:26:01.725000",
+      "_calculated": {
+        "confidence_factor": 1.0,
+        "status_weight": 0.1,
+        "response_bonus": 0
+      }
+    },
+    "ml_meta": {
+      "success_probability": 0.05,
+      "german_level": null,
+      "last_prediction_date": "2025-08-19 19:46:44.181000",
+      "_calculated": {
+        "confidence_factor": 0,
+        "status_weight": 0.1,
+        "response_bonus": 0.0
+      }
+    },
+    "response_days": 57
+  },
+  {
+    "_id": "68a4d02c4f19e46b962c9693",
+    "company": "Ford",
+    "location": "US",
+    "role": "Python Developer",
+    "status": "Applied",
+    "notes": "",
+    "source": "Other",
+    "applied_date": "2025-02-22T00:00:00",
+    "response_date": "2025-05-15T00:00:00",
+    "vacancy_description": "",
+    "ml": {
+      "success_probability": 0.05,
+      "german_level": null,
+      "last_prediction_date": "2025-08-19 19:27:40.027000",
+      "_calculated": {
+        "confidence_factor": 0,
+        "status_weight": 0.1,
+        "response_bonus": 0.0
+      }
+    },
+    "ml_meta": {
+      "success_probability": 0.05,
+      "german_level": null,
+      "last_prediction_date": "2025-08-19 19:47:12.111000",
+      "_calculated": {
+        "confidence_factor": 0,
+        "status_weight": 0.1,
+        "response_bonus": 0.0
+      }
+    },
+    "response_days": 82
+  }
+]

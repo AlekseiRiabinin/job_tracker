@@ -23,6 +23,7 @@ from .feature_engine import (
 
 class JobPredictor:
     """ML class for data loading, training and making predictions."""
+
     def __init__(
         self: Self,
         model_path: str = None, 
@@ -31,6 +32,7 @@ class JobPredictor:
         major_version: int = 1
     ) -> None:
         """Initialize prediction service with model path checking."""
+
         self.logger = logging.getLogger(__name__)
         self.major_version = major_version
         self.model_version = f"{major_version}.0"
@@ -63,6 +65,7 @@ class JobPredictor:
                     else:
                         self.logger.error("Loaded model is not fitted")
                         self.pipeline = None
+
                 except Exception as e:
                     self.logger.error(f"Failed to load model: {str(e)}")
                     self.logger.error(traceback.format_exc())
@@ -85,12 +88,14 @@ class JobPredictor:
                 self.model_version = metrics.get(
                     'model_version', self.model_version
                 )
+
             except Exception as e:
                 self.logger.error(f"Initial training failed: {str(e)}")
                 raise
 
     def is_ready(self: Self):
         """Check if predictor is ready for predictions."""
+
         return hasattr(self, 'pipeline') and self.pipeline is not None
 
     def train_from_mongodb(
@@ -99,6 +104,7 @@ class JobPredictor:
         random_state: int = 42,
     ) -> dict[str, object]:
         """Train and version a new model from MongoDB data."""
+
         try:
             db = current_app.db
             data = pd.DataFrame(list(db.applications.find(
@@ -159,6 +165,7 @@ class JobPredictor:
         except ValueError as e:
             current_app.logger.error(f"Data validation failed: {str(e)}")
             raise
+
         except Exception as e:
             current_app.logger.error(
                 f"Training failed: {str(e)}\n{traceback.format_exc()}"
@@ -173,6 +180,7 @@ class JobPredictor:
         german_level: str = None
     ) -> float:
         """Predict job application success probability."""
+
         REQUIRED_KEYS = {'vacancy_description', 'role', 'source'}
         PROFICIENCY_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
 
@@ -200,6 +208,7 @@ class JobPredictor:
                     user_idx = PROFICIENCY_ORDER.index(german_level)
                     if required_idx > user_idx:
                         return 0.0
+
                 except ValueError:
                     return 0.0
 
@@ -231,6 +240,7 @@ class JobPredictor:
         max_documents: Optional[int] = None
     ) -> dict:
         """Batch predict success probabilities and update MongoDB."""
+
         if not current_app or not hasattr(current_app, 'db'):
             raise RuntimeError(
                 "Flask application context with DB not available"
@@ -367,6 +377,7 @@ class JobPredictor:
 
     def create_pipeline():
         """Factory for creating new model pipelines."""
+
         preprocessor = make_column_transformer(
             (TechStackTransformer(), ['tech_stack']),
             (OneHotEncoder(handle_unknown='ignore'), ['industry']),
@@ -389,6 +400,7 @@ class JobPredictor:
 
     def get_model_info(self: Self) -> dict:
         """Get model metadata with pipeline configuration."""
+
         if not hasattr(self, 'pipeline') or not self.pipeline:
             raise RuntimeError("Model pipeline not initialized")
 
@@ -440,6 +452,7 @@ class JobPredictor:
 
     def _is_fitted(self: Self) -> bool:
         """Check if the pipeline is fitted."""
+
         if self.pipeline is None:
             return False
         
@@ -452,17 +465,20 @@ class JobPredictor:
                 if hasattr(first_step, 'transform'):
                     return True
             return False
+
         except:
             return False
 
     def _get_available_models(self: Self) -> list[str]:
         """Return list of available model files."""
+
         try:
             return [
                 os.path.join(self._model_dir, f)
                 for f in os.listdir(self._model_dir) 
                 if f.endswith('.pkl')
             ]
+
         except FileNotFoundError:
             return []
 
@@ -562,6 +578,7 @@ class JobPredictor:
         
     def _get_latest_model(self: Self) -> Optional[str]:
         """Return the path to the latest model."""
+
         model_files = self._get_available_models()
         if not model_files:
             return None
@@ -601,6 +618,7 @@ class JobPredictor:
             breaking_change: bool = False
     ) -> str:
         """Generate next semantic version."""
+
         try:
             current_major = getattr(self, 'major_version', None)
             
@@ -625,6 +643,7 @@ class JobPredictor:
 
     def _save_model(self: Self) -> str:
         """Save pipeline with versioned filename."""
+
         os.makedirs(self._model_dir, exist_ok=True)
 
         model_path = os.path.join(
@@ -642,12 +661,15 @@ class JobPredictor:
 
     def _get_model_timestamp(self: Self) -> str:
         """Get last retrained timestamp safely."""
+
         model_path = os.path.join('models', 'enhanced_model.pkl')
         try:
             if os.path.exists(model_path):
                 return datetime.fromtimestamp(
                     os.path.getmtime(model_path)
                 ).isoformat()
+
         except OSError:
             pass
+
         return "unknown"
