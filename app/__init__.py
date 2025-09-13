@@ -14,9 +14,9 @@ __all__ = ['cli']
 
 def create_app(test_config: Optional[dict] = None) -> Flask:
     """Factory function for creating the Flask application."""
+
     app = Flask(__name__)
     
-    # Load configuration
     cfg = Config()
     app.config.from_object(cfg)
     if test_config:
@@ -28,9 +28,9 @@ def create_app(test_config: Optional[dict] = None) -> Flask:
     init_swagger(app)
     init_predictor(app)
     
-    # Initialize MongoDB lazily
     app.mongo_client = None
-    app.db = None
+    app.db = None 
+    app.cli.add_command(cli)
     
     @app.before_request
     def ensure_services_initialized():
@@ -38,6 +38,7 @@ def create_app(test_config: Optional[dict] = None) -> Flask:
             try:
                 init_mongodb(app)
                 app.logger.info("Services initialized")
+
             except Exception as e:
                 app.logger.error(f"Service initialization failed: {str(e)}")
                 raise
@@ -48,6 +49,7 @@ def create_app(test_config: Optional[dict] = None) -> Flask:
 
 def init_swagger(app: Flask) -> None:
     """Initialize Swagger/OpenAPI documentation."""
+
     Swagger(app, template={
         'swagger': '2.0',
         'info': {
@@ -100,6 +102,7 @@ def init_mongodb(app: Flask) -> None:
                 ) from e
             time.sleep(retry_delay)
             continue
+
         except Exception as e:
             app.logger.error(f"Unexpected MongoDB error: {str(e)}")
             raise
@@ -107,6 +110,7 @@ def init_mongodb(app: Flask) -> None:
 
 def init_predictor(app: Flask) -> None:
     """Initialize the ML predictor service (fork-safe)."""
+
     app.predictor = JobPredictor(
         model_path=app.config['ML_MODEL_DIR'],
         major_version=app.config.get('MODEL_MAJOR_VERSION', 1),
@@ -119,13 +123,16 @@ def init_predictor(app: Flask) -> None:
 
 def register_blueprints(app: Flask) -> None:
     """Register all application blueprints."""
+
     from . import routes
     app.register_blueprint(routes.bp)
 
 
 def get_db():
     """Safe access to database with lazy initialization."""
+
     from flask import current_app
     if current_app.db is None:
         init_mongodb(current_app)
+
     return current_app.db

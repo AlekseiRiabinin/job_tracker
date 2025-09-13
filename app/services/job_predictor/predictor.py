@@ -203,7 +203,22 @@ class JobPredictor:
                 except ValueError:
                     return 0.0
 
-            prediction = float(self.pipeline.predict(features)[0][1])
+            raw_prediction = self.pipeline.predict(features)
+
+            # Handle different prediction output formats            
+            if (
+                hasattr(raw_prediction, 'shape') and 
+                len(raw_prediction.shape) > 1
+            ):
+                prediction = float(raw_prediction[0][1])
+            elif (
+                hasattr(raw_prediction, '__len__') and 
+                len(raw_prediction) > 0
+            ):
+                prediction = float(raw_prediction[0])
+            else:
+                prediction = float(raw_prediction)
+            
             return max(0.0, min(1.0, prediction))
 
         except Exception as e:
@@ -212,7 +227,6 @@ class JobPredictor:
     def predict_batch(
         self: Self,
         query_filter: Optional[dict] = None,
-        batch_size: int = 100,
         update_threshold: float = 0.01,
         max_documents: Optional[int] = None
     ) -> dict:
@@ -241,48 +255,82 @@ class JobPredictor:
         final_query = {**base_query, **(query_filter or {})}
 
         try:
+            total_count = db.applications.count_documents(final_query)
+            if max_documents:
+                total_count = min(total_count, max_documents)
+            
+            current_app.logger.info(
+                f"Starting batch prediction on {total_count} documents"
+            )
+
             cursor = db.applications.find(final_query)
             if max_documents:
                 cursor.limit(max_documents)
 
-            for batch in cursor.batch_size(batch_size):
+            for document in cursor:
                 stats['processed'] += 1
-                doc_id = batch['_id']
+                doc_id = document['_id']
+
+                if stats['processed'] % 100 == 0:
+                    current_app.logger.info(
+                        f"Processed {stats['processed']}"
+                        f"/{total_count} documents"
+                    )
 
                 try:
                     job_data = {
-                        'vacancy_description': batch.get('vacancy_description'),
-                        'role': batch.get('role'),
-                        'source': batch.get('source'),
-                        'tech_stack': batch.get('tech_stack', []),
-                        'industry': batch.get('industry'),
-                        # Include any other fields needed by the feature processor
+                        'vacancy_description': (
+                            document.get('vacancy_description', '')
+                        ),
+                        'role': document.get('role', ''),
+                        'source': document.get('source', ''),
+                        'tech_stack': document.get('tech_stack', []),
+                        'industry': document.get('industry', ''),
+                        'company': document.get('company', ''),
+                        'location': document.get('location', ''),
+                        'experience_level': (
+                            document.get('experience_level', '')
+                        ),
                     }
 
-                    current_pred = batch.get('ml', {}).get('success_probability')
-                    current_german = batch.get('ml', {}).get('german_level')
+                    ml_data = document.get('ml', {})
+                    current_pred = ml_data.get('success_probability')
+                    current_german = ml_data.get('german_level')
+                    current_pred_date = ml_data.get('last_prediction_date')
 
-                    german_level = batch.get('requirements', {}).get('german_level')
-                    prediction = self.predict(job_data, german_level=german_level)
+                    german_level = (
+                        document.get('requirements', {}).get('german_level')
+                    )
+
+                    prediction = self.predict(
+                        job_data, german_level=german_level
+                    )
 
                     needs_update = (
                         current_pred is None or
                         abs(prediction - current_pred) > update_threshold or
-                        current_german != german_level
+                        current_german != german_level or
+                        (current_pred_date and 
+                        (datetime.now() - current_pred_date).days > 30)
                     )
 
                     if needs_update:
                         update_data = {
                             "ml.success_probability": prediction,
                             "ml.german_level": german_level,
-                            "ml.last_prediction_date": datetime.now()
+                            "ml.last_prediction_date": datetime.now(),
+                            "ml.model_version": self.model_version
                         }
 
-                        db.applications.update_one(
+                        result = db.applications.update_one(
                             {"_id": doc_id},
                             {"$set": update_data}
                         )
-                        stats['updated'] += 1
+                        
+                        if result.modified_count > 0:
+                            stats['updated'] += 1
+                        else:
+                            stats['skipped'] += 1
                     else:
                         stats['skipped'] += 1
 
@@ -294,10 +342,18 @@ class JobPredictor:
                         "timestamp": datetime.now().isoformat()
                     })
                     current_app.logger.error(
-                        f"Batch prediction failed for document "
-                        f"{doc_id}: {str(e)}"
+                        f"Batch prediction failed for "
+                        f"document {doc_id}: {str(e)}"
                     )
                     continue
+
+            current_app.logger.info(
+                f"Batch prediction completed: "
+                f"{stats['processed']} processed, "
+                f"{stats['updated']} updated, "
+                f"{stats['skipped']} skipped, "
+                f"{stats['errors']} errors"
+            )
 
             return stats
 
@@ -361,7 +417,7 @@ class JobPredictor:
 
             gb = self.pipeline.named_steps.get('gradientboostingregressor')
             if gb:
-                info['classifier_params'] = {
+                info['regressor_params'] = {
                     'n_estimators': gb.n_estimators,
                     'learning_rate': gb.learning_rate,
                     'max_depth': gb.max_depth,
@@ -369,7 +425,9 @@ class JobPredictor:
                 }
 
         except Exception as e:
-            current_app.logger.error(f"Failed to extract pipeline info: {str(e)}")
+            current_app.logger.error(
+                f"Failed to extract pipeline info: {str(e)}"
+            )
             info['error'] = f"Metadata incomplete: {str(e)}"
 
         if hasattr(self, 'training_metrics'):

@@ -7,6 +7,9 @@ services:
     container_name: job-tracker
     ports:
       - "5000:5000"
+    volumes:
+      - ./data/samples:/app/data
+      - ./data/exports:/app/exports
     env_file:
       - .env
     environment:

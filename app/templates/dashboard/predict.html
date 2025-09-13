@@ -31,7 +31,7 @@
     {% endwith %}
     
     <div class="ml-form">
-        <form method="POST" action="{{ url_for('main.ml_predict') }}">  <!-- Fixed action URL -->
+        <form method="POST" action="{{ url_for('main.ml_predict') }}">
             <div class="form-group">
                 <label for="description">Job Description:</label>
                 <textarea name="description" required rows="6" 
@@ -88,7 +88,7 @@
     <div class="prediction-result">
         <h3>Prediction Result</h3>
         <div class="probability-gauge">
-            <div class="gauge-fill" style="--gauge-width: {{ (prediction.probability * 100)|clamp(0, 100) }}%"></div>
+            <div class="gauge-fill" style="--gauge-width: {{ (prediction.probability * 100) }}%"></div>
             <span class="probability-value">
                 {{ (prediction.probability * 100)|round(1) }}%
             </span>

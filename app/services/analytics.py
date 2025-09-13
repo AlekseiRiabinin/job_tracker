@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any, Optional, cast
 from ..models import JobApplication
 
 
@@ -8,6 +9,7 @@ class AnalyticsService:
     @staticmethod
     def get_summary_stats() -> dict:
         """Generate cards for dashboard header."""
+
         applications = JobApplication.get_db().applications
         total = applications.count_documents({})
         
@@ -20,11 +22,14 @@ class AnalyticsService:
         ]
 
         results = list(applications.aggregate(pipeline))
-        status_counts = {r["_id"]: r["count"] for r in results}
+        
+        results_dicts = [dict(result) for result in results]
+        status_counts = {r["_id"]: r["count"] for r in results_dicts}
 
         total_interviews = sum(
-            count for status, count in status_counts.items() 
-            if status.startswith("Interview/")
+            count for status, count 
+            in status_counts.items() 
+            if str(status).startswith("Interview/")
         )
 
         return {
@@ -46,37 +51,40 @@ class AnalyticsService:
             },
             "avg_response_times": {
                 r["_id"]: r["avg_response"] 
-                for r in results if r["avg_response"]
+                for r in results_dicts if r.get("avg_response")
             }
         }
 
     @staticmethod
-    def get_status_distribution() -> dict:
+    def get_status_distribution() -> dict[str, Any]:
         """Detailed status distribution with percentages."""
+
         stats = AnalyticsService.get_summary_stats()
         total = stats["total_applications"]
-
+        
+        by_status = cast(dict[str, int], stats["by_status"])
+        
         status_details = {
             status: {
                 "count": count,
                 "percentage": count / total * 100 if total > 0 else 0,
                 "type": "offer" if status == "Offer" else 
                     "rejection" if status in ("Rejected", "Ghosted") else
-                    "interview" if status.startswith("Interview/") else
+                    "interview" if str(status).startswith("Interview/") else
                     "application"
             }
-            for status, count in stats["by_status"].items()
+            for status, count in by_status.items()
         }
         
         interview_stages = {
             "total_interviews": sum(
-                count for status, count in stats["by_status"].items() 
-                if status.startswith("Interview/")
+                count for status, count in by_status.items() 
+                if str(status).startswith("Interview/")
             ),
             "breakdown": {
                 status: status_details[status]
-                for status in stats["by_status"]
-                if status.startswith("Interview/")
+                for status in by_status
+                if str(status).startswith("Interview/")
             }
         }
 
@@ -84,12 +92,12 @@ class AnalyticsService:
             "individual_statuses": status_details,
             "interview_pipeline": interview_stages,
             "summary": {
-                "applied": stats["by_status"].get("Applied", 0),
+                "applied": by_status.get("Applied", 0),
                 "in_interview": interview_stages["total_interviews"],
-                "offers": stats["by_status"].get("Offer", 0),
+                "offers": by_status.get("Offer", 0),
                 "rejections": (
-                    stats["by_status"].get("Rejected", 0) + 
-                    stats["by_status"].get("Ghosted", 0)
+                    by_status.get("Rejected", 0) + 
+                    by_status.get("Ghosted", 0)
                 )
             },
             "conversion_rates": stats["conversion_rates"]
@@ -141,26 +149,38 @@ class AnalyticsService:
             }}
         ]
         
-        result = list(JobApplication.get_db().applications.aggregate(pipeline))
-
-        return result[0] if result else {}
+        result = list(
+            JobApplication.get_db().applications.aggregate(pipeline)
+        )
+        
+        # Convert MongoDB result to regular Python dict
+        if result:
+            return cast(dict[str, Any], dict(result[0]))
+        return {}
 
     @staticmethod
     def get_timeseries(
         start_date: str,
-        end_date: str | None = None,
+        end_date: Optional[str] = None,
         include_applications: bool = False,
-        status_filter: str | None = None
-    ) -> list[dict]:
+        status_filter: Optional[str] = None
+    ) -> list[dict[str, Any]]:
         """Get daily application counts between dates (inclusive)."""
-        date_filter = {"applied_date": {"$gte": datetime.fromisoformat(start_date)}}
+
+        date_filter: dict[str, Any] = {
+            "applied_date": {"$gte": datetime.fromisoformat(start_date)}
+        }
         if end_date:
-            date_filter["applied_date"]["$lte"] = datetime.fromisoformat(end_date)
+            date_filter["applied_date"]["$lte"] = (
+                datetime.fromisoformat(end_date)
+            )
         if status_filter:
             date_filter["status"] = status_filter
 
-        group_stage = {
-            "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$applied_date"}},
+        group_stage: dict[str, Any] = {
+            "_id": {"$dateToString": {
+                "format": "%Y-%m-%d", "date": "$applied_date"
+            }},
             "count": {"$sum": 1}
         }
         
@@ -180,10 +200,18 @@ class AnalyticsService:
             {"$project": {
                 "date": "$_id",
                 "count": 1,
-                **({"applications": 1} if include_applications else {}),
+                **(
+                    {"applications": 1} 
+                    if include_applications else {}
+                ),
                 "_id": 0
             }},
             {"$sort": {"date": 1}}
         ]
 
-        return list(JobApplication.get_db().applications.aggregate(pipeline))
+        results = list(
+            JobApplication.get_db().applications.aggregate(pipeline)
+        )
+        
+        # Convert MongoDB results to regular Python dictionaries
+        return [dict(result) for result in results]

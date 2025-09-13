@@ -1,11 +1,12 @@
 import json
 import random
 from datetime import datetime, timedelta
-from faker import Faker
 from pathlib import Path
+from typing import Any, Optional
+from faker import Faker
 
 
-VALID_STATUSES = {
+VALID_STATUSES: set[str] = {
     "Applied",
     "Interview/Phone", 
     "Interview/Technical",
@@ -16,7 +17,7 @@ VALID_STATUSES = {
 }
 
 
-GERMAN_DESCRIPTIONS = [
+GERMAN_DESCRIPTIONS: list[str] = [
     "Wir suchen einen {level} {role} mit {experience} Jahren Erfahrung. {text}",
     "Zur Verstärkung unseres Teams suchen wir einen {level} {role} ({experience} Jahre Erfahrung). {text}",
     "Ihre Herausforderung: Als {role} ({level}) mit {experience} Jahren Erfahrung. {text}",
@@ -25,7 +26,7 @@ GERMAN_DESCRIPTIONS = [
 ]
 
 
-GERMAN_TEXT_SAMPLES = [
+GERMAN_TEXT_SAMPLES: list[str] = [
     "Sie arbeiten in einem agilen Team und entwickeln innovative Lösungen.",
     "Verantwortung für die Konzeption und Umsetzung von Softwarelösungen.",
     "Entwicklung von skalierbaren Anwendungen in modernen Tech-Stacks.",
@@ -39,8 +40,13 @@ GERMAN_TEXT_SAMPLES = [
 ]
 
 
-def generate_german_description(role, level, experience):
+def generate_german_description(
+    role: str,
+    level: str,
+    experience: str
+) -> str:
     """Generate a German job description."""
+
     template = random.choice(GERMAN_DESCRIPTIONS)
     german_text = random.choice(GERMAN_TEXT_SAMPLES)
     return template.format(
@@ -51,11 +57,14 @@ def generate_german_description(role, level, experience):
     )
 
 
-def generate_job_application_data(num_records: int = 1000) -> list[dict]:
-    """Generate realistic job application test data that matches the data model."""
+def generate_job_application_data(
+    num_records: int = 1000
+) -> list[dict[str, Any]]:
+    """Generate job application test data."""
+
     fake = Faker()
     
-    cities_companies = {
+    cities_companies: dict[str, list[str]] = {
         "Berlin": ["N26", "SoundCloud", "Delivery Hero", "Zalando", "Microsoft Germany"],
         "Munich": ["Siemens", "BMW", "Google Germany", "IBM", "SAP HQ"],
         "Hamburg": ["Xing", "AboutYou", "Airbnb", "Facebook", "Hapag-Lloyd IT"],
@@ -74,7 +83,7 @@ def generate_job_application_data(num_records: int = 1000) -> list[dict]:
     }
 
 
-    sources = [
+    sources: list[str] = [
         "LinkedIn", "XING", "StepStone", "Indeed", "Glassdoor",
         "Stack Overflow Jobs", "Monster", "German Tech Jobs",
         "Make it in Germany", "Company Website", "Recruiter",
@@ -83,47 +92,55 @@ def generate_job_application_data(num_records: int = 1000) -> list[dict]:
     ]
 
 
-    roles = ["Data Engineer", "Software Developer"]  
-    levels = ["senior", "mid", "junior"]
-    experiences = ["3+", "5+", "7+"]
-    german_levels = ["A1", "A2", "B1", "B2", "C1", "C2", None]
+    roles: list[str] = ["Data Engineer", "Software Developer"]  
+    levels: list[str] = ["senior", "mid", "junior"]
+    experiences: list[str] = ["3+", "5+", "7+"]
+    german_levels: list[Optional[str]] = ["A1", "A2", "B1", "B2", "C1", "C2", None]
 
 
-    applications = []
-    for i in range(num_records):
+    applications: list[dict[str, Any]] = []
+    for _ in range(num_records):
         city = random.choice(list(cities_companies.keys()))
         company = random.choice(cities_companies[city])
 
-        applied_date = fake.date_time_between(start_date="-1y", end_date="now")
-        response_date = None
+        applied_date = fake.date_time_between(
+            start_date="-1y", end_date="now"
+        )
+        response_date: Optional[datetime] = None
         status = random.choice(list(VALID_STATUSES))
 
         if status not in ["Applied", "Ghosted"]:
-            response_date = applied_date + timedelta(days=random.randint(1, 60))
+            response_date = (
+                applied_date + 
+                timedelta(days=random.randint(1, 60))
+            )
         
         # Calculate response_days if response_date exists
-        response_days = None
+        response_days: Optional[int] = None
         if response_date:
             response_days = (response_date - applied_date).days
         
-        # Randomly decide if this should be a German job (about 30% chance)
+        # Randomly decide if this should be a German job
         is_german = random.random() < 0.3
         role = random.choice(roles)
         level = random.choice(levels)
         experience = random.choice(experiences)
         
         if is_german:
-            vacancy_description = generate_german_description(role, level, experience)
+            vacancy_description = generate_german_description(
+                role, level, experience
+            )
             description_lang = "de"
         else:
             vacancy_description = (
-                f"Seeking {level} {role} with {experience} years experience. "
+                f"Seeking {level} {role} with "
+                f"{experience} years experience. "
                 f"{fake.text(max_nb_chars=500)}"
             )
             description_lang = "en"
         
         # Create ml_meta structure that matches the data model
-        ml_meta = {
+        ml_meta: dict[str, Any] = {
             "success_probability": round(random.uniform(0, 1), 2),
             "german_level": random.choice(german_levels),
             "last_prediction_date": datetime.now(),
@@ -134,7 +151,7 @@ def generate_job_application_data(num_records: int = 1000) -> list[dict]:
             }
         }
         
-        application = {
+        application: dict[str, Any] = {
             "company": company,
             "location": city,
             "role": role,
@@ -150,7 +167,7 @@ def generate_job_application_data(num_records: int = 1000) -> list[dict]:
                 f"Ref: {fake.name()}"
             ]),
             "vacancy_description": vacancy_description,
-            "description_lang": description_lang,  # Add language field
+            "description_lang": description_lang,
             "ml_meta": ml_meta,
             "requirements": {
                 "german_level": ml_meta["german_level"],
@@ -167,15 +184,16 @@ def generate_job_application_data(num_records: int = 1000) -> list[dict]:
 
 
 def save_to_json(
-        data: list[dict],
-        filename: str = None
+        data: list[dict[str, Any]],
+        filename: Optional[str | Path] = None
 ) -> None:
     """Save generated data to JSON file with proper datetime handling."""
+
     if filename is None:
         project_root = Path(__file__).parent.parent.parent
         filename = project_root / "data" / "samples" / "job_applications.json"
 
-    def json_serializer(obj):
+    def json_serializer(obj: Any) -> str | Any:
         if isinstance(obj, datetime):
             return obj.isoformat()
         raise TypeError(f"Type {type(obj)} not serializable")
