@@ -7,8 +7,8 @@ import logging
 import pandas as pd
 from flask import current_app
 from datetime import datetime
-from typing import Self, Optional
-from sklearn.pipeline import Pipeline ,make_pipeline
+from typing import Self, Optional, Any, TYPE_CHECKING
+from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.compose import make_column_transformer
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.preprocessing import OneHotEncoder
@@ -19,6 +19,14 @@ from .feature_engine import (
     LanguageAwareTfidf,
     create_enhanced_features
 )
+
+if TYPE_CHECKING:
+    from pymongo.database import Database
+    from pymongo.cursor import Cursor
+    from pymongo.results import UpdateResult
+    from datetime import datetime as DateTimeType
+    from sklearn.compose import ColumnTransformer
+    from sklearn.base import BaseEstimator, TransformerMixin
 
 
 class JobPredictor:
@@ -84,6 +92,7 @@ class JobPredictor:
             try:
                 if len(available_models) > 0:
                     self.model_version = self._increment_version()
+
                 metrics = self.train_from_mongodb(**db_config)
                 self.model_version = metrics.get(
                     'model_version', self.model_version
@@ -220,11 +229,13 @@ class JobPredictor:
                 len(raw_prediction.shape) > 1
             ):
                 prediction = float(raw_prediction[0][1])
+
             elif (
                 hasattr(raw_prediction, '__len__') and 
                 len(raw_prediction) > 0
             ):
                 prediction = float(raw_prediction[0])
+
             else:
                 prediction = float(raw_prediction)
             
@@ -238,7 +249,7 @@ class JobPredictor:
         query_filter: Optional[dict] = None,
         update_threshold: float = 0.01,
         max_documents: Optional[int] = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Batch predict success probabilities and update MongoDB."""
 
         if not current_app or not hasattr(current_app, 'db'):
@@ -246,8 +257,8 @@ class JobPredictor:
                 "Flask application context with DB not available"
             )
 
-        db = current_app.db
-        stats = {
+        db: Database = current_app.db
+        stats: dict[str, Any] = {
             'processed': 0,
             'updated': 0,
             'skipped': 0,
@@ -265,15 +276,18 @@ class JobPredictor:
         final_query = {**base_query, **(query_filter or {})}
 
         try:
-            total_count = db.applications.count_documents(final_query)
+            total_count = (
+                db.applications.count_documents(final_query)
+            )
             if max_documents:
                 total_count = min(total_count, max_documents)
             
             current_app.logger.info(
-                f"Starting batch prediction on {total_count} documents"
+                f"Starting batch prediction on "
+                f"{total_count} documents"
             )
 
-            cursor = db.applications.find(final_query)
+            cursor: Cursor = db.applications.find(final_query)
             if max_documents:
                 cursor.limit(max_documents)
 
@@ -288,40 +302,55 @@ class JobPredictor:
                     )
 
                 try:
-                    job_data = {
+                    doc_dict: dict[str, Any] = document
+                    
+                    job_data: dict[str, Any] = {
                         'vacancy_description': (
-                            document.get('vacancy_description', '')
+                            doc_dict.get('vacancy_description', '')
                         ),
-                        'role': document.get('role', ''),
-                        'source': document.get('source', ''),
-                        'tech_stack': document.get('tech_stack', []),
-                        'industry': document.get('industry', ''),
-                        'company': document.get('company', ''),
-                        'location': document.get('location', ''),
+                        'role': doc_dict.get('role', ''),
+                        'source': doc_dict.get('source', ''),
+                        'tech_stack': doc_dict.get('tech_stack', []),
+                        'industry': doc_dict.get('industry', ''),
+                        'company': doc_dict.get('company', ''),
+                        'location': doc_dict.get('location', ''),
                         'experience_level': (
-                            document.get('experience_level', '')
+                            doc_dict.get('experience_level', '')
                         ),
                     }
 
-                    ml_data = document.get('ml', {})
-                    current_pred = ml_data.get('success_probability')
-                    current_german = ml_data.get('german_level')
-                    current_pred_date = ml_data.get('last_prediction_date')
+                    ml_data: dict[str, Any] = doc_dict.get('ml', {})
+                    current_pred: Optional[float] = ml_data.get(
+                        'success_probability'
+                    )
+                    current_german: Optional[str] = ml_data.get(
+                        'german_level'
+                    )
+                    current_pred_date: Optional[DateTimeType] = ml_data.get(
+                        'last_prediction_date'
+                    )
 
-                    german_level = (
-                        document.get('requirements', {}).get('german_level')
+                    requirements: dict[str, Any] = doc_dict.get(
+                        'requirements', {}
+                    )
+                    german_level: Optional[str] = requirements.get(
+                        'german_level'
                     )
 
                     prediction = self.predict(
                         job_data, german_level=german_level
                     )
 
+                    date_diff = (
+                        (datetime.now() - current_pred_date).days 
+                        if current_pred_date else None
+                    )
+
                     needs_update = (
                         current_pred is None or
                         abs(prediction - current_pred) > update_threshold or
                         current_german != german_level or
-                        (current_pred_date and 
-                        (datetime.now() - current_pred_date).days > 30)
+                        (date_diff and date_diff > 30)
                     )
 
                     if needs_update:
@@ -332,11 +361,11 @@ class JobPredictor:
                             "ml.model_version": self.model_version
                         }
 
-                        result = db.applications.update_one(
+                        result: UpdateResult = db.applications.update_one(
                             {"_id": doc_id},
                             {"$set": update_data}
                         )
-                        
+
                         if result.modified_count > 0:
                             stats['updated'] += 1
                         else:
@@ -346,7 +375,10 @@ class JobPredictor:
 
                 except Exception as e:
                     stats['errors'] += 1
-                    stats['error_details'].append({
+                    error_details_list: list[dict[str, Any]] = (
+                        stats['error_details']
+                    )
+                    error_details_list.append({
                         "document_id": str(doc_id),
                         "error": str(e),
                         "timestamp": datetime.now().isoformat()
@@ -379,12 +411,30 @@ class JobPredictor:
         """Factory for creating new model pipelines."""
 
         preprocessor = make_column_transformer(
-            (TechStackTransformer(), ['tech_stack']),
-            (OneHotEncoder(handle_unknown='ignore'), ['industry']),
-            (OneHotEncoder(handle_unknown='ignore'), ['source']),
-            (OneHotEncoder(handle_unknown='ignore'), ['german_level']),
-            ('passthrough', ['relative_seniority']),
-            (LanguageAwareTfidf(max_features=50), ['processed_text', 'description_lang']),
+            (
+                TechStackTransformer(),
+                ['tech_stack']
+            ),
+            (
+                OneHotEncoder(handle_unknown='ignore'),
+                ['industry']
+            ),
+            (
+                OneHotEncoder(handle_unknown='ignore'),
+                ['source']
+            ),
+            (
+                OneHotEncoder(handle_unknown='ignore'),
+                ['german_level']
+            ),
+            (
+                'passthrough',
+                ['relative_seniority']
+            ),
+            (
+                LanguageAwareTfidf(max_features=50),
+                ['processed_text', 'description_lang']
+            ),
             remainder='drop'
         )
 
@@ -398,13 +448,13 @@ class JobPredictor:
             )
         )
 
-    def get_model_info(self: Self) -> dict:
+    def get_model_info(self: Self) -> dict[str, Any]:
         """Get model metadata with pipeline configuration."""
 
         if not hasattr(self, 'pipeline') or not self.pipeline:
             raise RuntimeError("Model pipeline not initialized")
 
-        info = {
+        info: dict[str, Any] = {
             "version": getattr(self, 'model_version', 'unversioned'),
             "last_retrained": self._get_model_timestamp(),
             "model_type": self.pipeline[-1].__class__.__name__,
@@ -413,21 +463,33 @@ class JobPredictor:
         }
 
         try:
-            ct = self.pipeline.named_steps.get('columntransformer')
+            pipeline: Pipeline = self.pipeline
+            
+            ct: Optional[ColumnTransformer] = (
+                pipeline.named_steps.get('columntransformer')
+            )
+
             if ct:
-                info['features'] = list(ct.get_feature_names_out())
-                info['feature_count'] = len(info['features'])
+                features: list[str] = list(ct.get_feature_names_out())
+                info['features'] = features
+                info['feature_count'] = len(features)
                 
-                info['pipeline_steps'] = [
-                    {
+                transformers_info: list[dict[str, Any]] = []
+
+                for transformer, columns, _ in ct.transformers_:
+                    transformer_info: dict[str, Any] = {
                         'transformer': str(transformer.__class__.__name__),
                         'columns': columns,
                         'params': transformer.get_params()
                     }
-                    for transformer, columns, _ in ct.transformers_
-                ]
+                    transformers_info.append(transformer_info)
+                
+                info['pipeline_steps'] = transformers_info
 
-            gb = self.pipeline.named_steps.get('gradientboostingregressor')
+            gb: Optional[GradientBoostingRegressor] = (
+                pipeline.named_steps.get('gradientboostingregressor')
+            )
+
             if gb:
                 info['regressor_params'] = {
                     'n_estimators': gb.n_estimators,
@@ -442,11 +504,16 @@ class JobPredictor:
             )
             info['error'] = f"Metadata incomplete: {str(e)}"
 
-        if hasattr(self, 'training_metrics'):
-            info.update({
-                k: v for k, v in self.training_metrics.items()
+        training_metrics: Optional[dict[str, Any]] = (
+            getattr(self, 'training_metrics', None)
+        )
+
+        if training_metrics:
+            filtered_metrics = {
+                k: v for k, v in training_metrics.items() 
                 if not k.startswith('_')
-            })
+            }
+            info.update(filtered_metrics)
 
         return info
 
@@ -561,8 +628,10 @@ class JobPredictor:
             
             if hasattr(pipeline, 'steps') and len(pipeline.steps) > 0:
                 first_step = pipeline.steps[0][1]
+
                 if hasattr(first_step, 'transform'):
                     self.logger.info("Pipeline appears to be fitted")
+
                 else:
                     self.logger.warning(
                         "First step doesn't have transform method"
