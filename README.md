@@ -5,7 +5,7 @@ A comprehensive Flask-based web application for tracking job applications with M
 ## Features
 
 - **Job Application Management**: Add, view, update, and delete job applications
-- **RESTful API:**: JSON-based API for programmatic access
+- **RESTful API**: JSON-based API for programmatic access
 - **Data Import/Export**: Support for CSV and JSON formats
 - **Machine Learning Integration**: Predictive analytics for job application success
 - **Multi-language Support**: German and English NLP processing
